@@ -1,0 +1,32 @@
+[package]
+name = "client"
+version = "0.1.0"
+authors = ["Tanner Rogalsky <tanner@tannerrogalsky.com>"]
+edition = "2018"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--enable-mutable-globals"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+solstice-2d = { path = "../../solstice/solstice-2d" }
+#solstice-2d = "0.2"
+eyre = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+rapier2d = "0.8"
+crossbeam-channel = "0.5.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+glutin = "0.26"
+simple_logger = "1.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+winit = { version = "0.24", default-features = false, features = ["web-sys"] }
+wasm-bindgen = "0.2"
+wasm-logger = "0.2"
+console_error_panic_hook = "0.1"
+wee_alloc = "0.4"
