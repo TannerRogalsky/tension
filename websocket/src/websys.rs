@@ -1,6 +1,4 @@
-use crate::WebSocketEvent;
-use futures::FutureExt;
-use std::sync::mpsc::TryRecvError;
+use futures::{FutureExt, StreamExt};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent};
@@ -12,6 +10,7 @@ pub struct WebSocket {
     on_open_callback: Closure<dyn FnMut(JsValue)>,
     on_error_callback: Closure<dyn FnMut(ErrorEvent)>,
     on_close_callback: Closure<dyn FnMut(CloseEvent)>,
+    on_open_notification: futures::channel::mpsc::Receiver<Result<(), super::WebSocketError>>,
 }
 
 impl WebSocket {
@@ -69,6 +68,7 @@ impl Drop for WebSocket {
 impl From<web_sys::WebSocket> for WebSocket {
     fn from(inner: web_sys::WebSocket) -> Self {
         let (sx, rx) = std::sync::mpsc::channel();
+        let (mut on_open_sender, on_open_recver) = futures::channel::mpsc::channel(1);
         let on_message_callback = {
             let queue = sx.clone();
             Closure::wrap(Box::new(move |e: MessageEvent| {
@@ -93,10 +93,10 @@ impl From<web_sys::WebSocket> for WebSocket {
             .unwrap();
 
         let on_open_callback = {
-            let queue = sx.clone();
+            let mut on_open_sender = on_open_sender.clone();
             Closure::wrap(Box::new(move |_| {
-                if let Err(err) = queue.send(super::WebSocketEvent::Open) {
-                    log::error!("{}", err);
+                if let Err(_) = on_open_sender.try_send(Ok(())) {
+                    log::error!("Failed to send WebSocket open event notification");
                 }
             }) as Box<dyn FnMut(JsValue)>)
         };
@@ -105,11 +105,8 @@ impl From<web_sys::WebSocket> for WebSocket {
             .unwrap();
 
         let on_error_callback = {
-            let queue = sx.clone();
             Closure::wrap(Box::new(move |_error_event| {
-                if let Err(err) = queue.send(super::WebSocketEvent::Error(
-                    super::WebSocketError::ReceiveError,
-                )) {
+                if let Err(err) = on_open_sender.try_send(Err(super::WebSocketError::CreationError)) {
                     log::error!("{}", err)
                 }
             }) as Box<dyn FnMut(ErrorEvent)>)
@@ -138,6 +135,7 @@ impl From<web_sys::WebSocket> for WebSocket {
             on_open_callback,
             on_error_callback,
             on_close_callback,
+            on_open_notification: on_open_recver
         }
     }
 }
@@ -159,22 +157,16 @@ impl futures::future::Future for ConnectionFuture {
             ConnectionFuture::Error(err) => err.poll_unpin(cx).map(|err| Err(err)),
             ConnectionFuture::Connecting(maybe_ws) => {
                 if let Some(ws) = maybe_ws {
-                    match ws.event_queue.try_recv() {
-                        Ok(msg) => match msg {
-                            WebSocketEvent::Open => {
-                                std::task::Poll::Ready(Ok(maybe_ws.take().unwrap()))
-                            }
-                            _ => std::task::Poll::Ready(Err(super::WebSocketError::CreationError)),
-                        },
-                        Err(err) => match err {
-                            TryRecvError::Empty => std::task::Poll::Pending,
-                            TryRecvError::Disconnected => {
-                                std::task::Poll::Ready(Err(super::WebSocketError::CreationError))
-                            }
-                        },
+                    if let std::task::Poll::Ready(result) =  ws.on_open_notification.next().poll_unpin(cx) {
+                        match result {
+                            Some(Ok(_)) => std::task::Poll::Ready(Ok(maybe_ws.take().unwrap())),
+                            _ => std::task::Poll::Ready(Err(super::WebSocketError::CreationError))
+                        }
+                    } else {
+                        std::task::Poll::Pending
                     }
                 } else {
-                    std::task::Poll::Pending
+                    std::task::Poll::Ready(Err(super::WebSocketError::CreationError))
                 }
             }
         }
