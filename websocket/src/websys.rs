@@ -106,7 +106,8 @@ impl From<web_sys::WebSocket> for WebSocket {
 
         let on_error_callback = {
             Closure::wrap(Box::new(move |_error_event| {
-                if let Err(err) = on_open_sender.try_send(Err(super::WebSocketError::CreationError)) {
+                if let Err(err) = on_open_sender.try_send(Err(super::WebSocketError::CreationError))
+                {
                     log::error!("{}", err)
                 }
             }) as Box<dyn FnMut(ErrorEvent)>)
@@ -135,7 +136,7 @@ impl From<web_sys::WebSocket> for WebSocket {
             on_open_callback,
             on_error_callback,
             on_close_callback,
-            on_open_notification: on_open_recver
+            on_open_notification: on_open_recver,
         }
     }
 }
@@ -157,10 +158,12 @@ impl futures::future::Future for ConnectionFuture {
             ConnectionFuture::Error(err) => err.poll_unpin(cx).map(|err| Err(err)),
             ConnectionFuture::Connecting(maybe_ws) => {
                 if let Some(ws) = maybe_ws {
-                    if let std::task::Poll::Ready(result) =  ws.on_open_notification.next().poll_unpin(cx) {
+                    if let std::task::Poll::Ready(result) =
+                        ws.on_open_notification.next().poll_unpin(cx)
+                    {
                         match result {
                             Some(Ok(_)) => std::task::Poll::Ready(Ok(maybe_ws.take().unwrap())),
-                            _ => std::task::Poll::Ready(Err(super::WebSocketError::CreationError))
+                            _ => std::task::Poll::Ready(Err(super::WebSocketError::CreationError)),
                         }
                     } else {
                         std::task::Poll::Pending

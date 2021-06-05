@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tension</title>
+</head>
+<body>
+    <script type="module">
+        import init, { Network } from './tension/client.js';
+
+        import Cookies from 'https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.mjs';
+
+        async function run() {
+            await init();
+
+            const userID = new Uint32Array(2);
+            window.crypto.getRandomValues(userID);
+            Cookies.set('game-player-id', userID.join(''));
+
+            let network = await Network.connect(window.location.host + window.location.pathname);
+            let roomID = await network.create_room();
+            console.log(roomID);
+        }
+        run();
+    </script>
+    Hello
+</body>
+</html>

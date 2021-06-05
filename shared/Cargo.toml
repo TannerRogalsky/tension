@@ -7,3 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+eyre = "0.6.5"
+serde = { version = "1.0.126", features = ["derive"] }
+rand = { version = "0.8.3", default-features = false }
+log = "0.4.14"
+thiserror = "1.0.25"
+
+[dev-dependencies]
+rand = "0.8"
+crossbeam-channel = "0.5.1"

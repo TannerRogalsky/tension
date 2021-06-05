@@ -1,3 +1,6 @@
+#[cfg(target_arch = "wasm32")]
+pub mod web;
+
 use solstice_2d::Draw;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -200,9 +203,12 @@ mod physics {
     use super::RepeatingTimer as Timer;
 
     use rapier2d::dynamics::{
-        CCDSolver, IntegrationParameters, JointSet, RigidBodyBuilder, RigidBodyHandle, RigidBodySet,
+        CCDSolver, IntegrationParameters, JointSet, RigidBodyBuilder, RigidBodySet,
     };
-    use rapier2d::geometry::{BroadPhase, ColliderBuilder, ColliderSet, ContactEvent, IntersectionEvent, NarrowPhase, TypedShape, ColliderHandle};
+    use rapier2d::geometry::{
+        BroadPhase, ColliderBuilder, ColliderHandle, ColliderSet, ContactEvent, IntersectionEvent,
+        NarrowPhase, TypedShape,
+    };
     use rapier2d::na::{Point2, Vector2};
     use rapier2d::pipeline::{ChannelEventCollector, PhysicsPipeline, QueryPipeline};
     use solstice_2d::Stroke;
@@ -323,13 +329,21 @@ mod physics {
                 while let Ok(intersection_event) = self.intersection_events.try_recv() {
                     if intersection_event.collider1 == self.kill_sensor {
                         if let Some(other) = self.colliders.get(intersection_event.collider2) {
-                            self.bodies.remove(other.parent(), &mut self.colliders, &mut self.joints);
+                            self.bodies.remove(
+                                other.parent(),
+                                &mut self.colliders,
+                                &mut self.joints,
+                            );
                         }
                     }
 
                     if intersection_event.collider2 == self.kill_sensor {
                         if let Some(other) = self.colliders.get(intersection_event.collider1) {
-                            self.bodies.remove(other.parent(), &mut self.colliders, &mut self.joints);
+                            self.bodies.remove(
+                                other.parent(),
+                                &mut self.colliders,
+                                &mut self.joints,
+                            );
                         }
                     }
                 }
@@ -394,6 +408,133 @@ mod physics {
                     }
                 }
             }
+        }
+    }
+}
+
+mod net {
+    use futures::{FutureExt, TryFutureExt};
+    use shared::Message;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    struct Recv(websocket::WsRecv);
+    struct Send(websocket::WsSend);
+
+    impl From<websocket::WsRecv> for Recv {
+        fn from(inner: websocket::WsRecv) -> Self {
+            Self(inner)
+        }
+    }
+
+    impl<T> shared::Receiver<T> for Recv
+    where
+        T: for<'a> serde::Deserialize<'a>,
+    {
+        fn try_recv(&self) -> Result<Message<T>, ()> {
+            self.0.try_recv().map_err(|_| ()).and_then(|msg| {
+                use websocket::Message;
+                match msg {
+                    Message::Text(text) => serde_json::from_str(&text),
+                    Message::Binary(data) => serde_json::from_slice(&data),
+                }
+                .map_err(|_| ())
+            })
+        }
+    }
+
+    impl From<websocket::WsSend> for Send {
+        fn from(inner: websocket::WsSend) -> Self {
+            Self(inner)
+        }
+    }
+
+    impl<T> shared::Sender<T> for Send
+    where
+        T: serde::Serialize,
+    {
+        fn send(&self, msg: Message<T>) -> Result<(), ()> {
+            let data = serde_json::to_vec(&msg).map_err(|_| ())?;
+            self.0
+                .send(websocket::Message::Binary(data))
+                .map_err(|_| ())
+        }
+    }
+
+    pub struct Client {
+        pub base_url: String,
+        inner: shared::Client<(), Send, Recv, rand::rngs::SmallRng>,
+        // ws: Websocket
+    }
+
+    impl Client {
+        pub async fn new(base_url: String) -> eyre::Result<Self> {
+            let ws_url = String::from("ws://") + &base_url + shared::ENDPOINT_WS;
+            let ws = websocket::WebSocket::connect(&ws_url).await?;
+            let (sx, rx) = ws.into_channels();
+            let rng = rand::SeedableRng::seed_from_u64(0);
+            let inner = shared::Client::new(sx.into(), rx.into(), rng);
+            Ok(Self { base_url, inner })
+        }
+
+        pub fn create_room(
+            &self,
+            player: shared::PlayerName,
+        ) -> eyre::Result<NetFuture<shared::RoomID>> {
+            let body = serde_json::to_string(&player)?;
+            let url = String::from("http://") + &self.base_url + shared::ENDPOINT_CREATE_ROOM;
+
+            let client = reqwest::Client::new();
+            let inner = client
+                .post(url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send()
+                .map_err(eyre::Report::from)
+                .and_then(|response| response.text().map_err(eyre::Report::from))
+                .and_then(
+                    |text| async move { serde_json::from_str(&text).map_err(eyre::Report::from) },
+                )
+                .boxed_local();
+
+            Ok(NetFuture { inner })
+        }
+
+        pub fn join_room(
+            &self,
+            join_info: &shared::RoomJoinInfo,
+        ) -> eyre::Result<NetFuture<shared::RoomID>> {
+            let body = serde_json::to_string(&join_info)?;
+            let url = String::from("http://") + &self.base_url + shared::ENDPOINT_JOIN_ROOM;
+
+            let client = reqwest::Client::new();
+            let inner = client
+                .post(url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send()
+                .map_err(eyre::Report::from)
+                .and_then(|response| response.text().map_err(eyre::Report::from))
+                .and_then(
+                    |text| async move { serde_json::from_str(&text).map_err(eyre::Report::from) },
+                )
+                .boxed_local();
+
+            Ok(NetFuture { inner })
+        }
+    }
+
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
+    pub struct NetFuture<T> {
+        inner: futures::future::LocalBoxFuture<'static, eyre::Result<T>>,
+    }
+
+    impl<T> Future for NetFuture<T> {
+        type Output = eyre::Result<T>;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            self.inner.poll_unpin(cx)
         }
     }
 }
