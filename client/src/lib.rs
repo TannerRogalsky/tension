@@ -419,8 +419,8 @@ mod net {
     use std::pin::Pin;
     use std::task::{Context, Poll};
 
-    struct Recv(websocket::WsRecv);
-    struct Send(websocket::WsSend);
+    pub struct Recv(websocket::WsRecv);
+    pub struct Send(websocket::WsSend);
 
     impl From<websocket::WsRecv> for Recv {
         fn from(inner: websocket::WsRecv) -> Self {
@@ -463,9 +463,8 @@ mod net {
     }
 
     pub struct Client {
-        pub base_url: String,
-        inner: shared::Client<(), Send, Recv, rand::rngs::SmallRng>,
-        // ws: Websocket
+        base_url: String,
+        pub inner: shared::Client<(), Send, Recv, rand::rngs::SmallRng>,
     }
 
     impl Client {

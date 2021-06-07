@@ -71,6 +71,15 @@ where
                     }
                     MessageType::Custom(v) => room.custom_messages.push_back(v),
                 }
+            } else if let MessageType::PlayerJoined(player) = msg.ty {
+                self.rooms.insert(
+                    msg.target,
+                    Room {
+                        id: msg.target,
+                        players: vec![player],
+                        custom_messages: Default::default(),
+                    },
+                );
             }
         }
     }
@@ -90,6 +99,13 @@ impl<T> Message<T> {
         }
     }
 
+    pub fn left(target: RoomID, player: Player) -> Self {
+        Self {
+            target,
+            ty: MessageType::PlayerLeft(player),
+        }
+    }
+
     pub fn target(&self) -> RoomID {
         self.target
     }
@@ -102,7 +118,9 @@ pub enum MessageType<T> {
     Custom(T),
 }
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Default, Serialize, Deserialize,
+)]
 pub struct RoomID([u8; 4]);
 
 impl RoomID {

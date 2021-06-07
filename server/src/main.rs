@@ -192,7 +192,10 @@ async fn on_ws_connect(
         }
     }
 
-    log::debug!("end ws connection");
+    if let None = connections.write().await.remove(&id) {
+        log::warn!("Attempted to remove player connection that was not present.");
+    }
+    // event_sink.send(CustomMessage::left("*", id));
 }
 
 async fn create_room(

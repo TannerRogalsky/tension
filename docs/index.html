@@ -13,13 +13,18 @@
         async function run() {
             await init();
 
-            const userID = new Uint32Array(2);
+            const userID = new Uint32Array(1);
             window.crypto.getRandomValues(userID);
             Cookies.set('game-player-id', userID.join(''));
 
             let network = await Network.connect(window.location.host + window.location.pathname);
-            let roomID = await network.create_room();
+            let roomID = await network.create_room("Tanner");
             console.log(roomID);
+
+            console.log(network.players(roomID));
+            setTimeout(() => {
+                console.log(network.players(roomID));
+            }, 500);
         }
         run();
     </script>

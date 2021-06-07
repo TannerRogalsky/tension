@@ -62,4 +62,18 @@ impl NetworkWrapper {
             .map_err(to_js);
         Ok(wasm_bindgen_futures::future_to_promise(future))
     }
+
+    pub fn players(&mut self, room_id: String) -> Option<js_sys::Array> {
+        self.inner.inner.update();
+        let room_id = std::str::FromStr::from_str(&room_id).ok()?;
+        self.inner.inner.get_room(&room_id).map(|room| {
+            room.players
+                .iter()
+                .map(|player| {
+                    log::debug!("{}", player.name);
+                    JsValue::from_str(&player.name)
+                })
+                .collect()
+        })
+    }
 }
