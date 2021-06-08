@@ -58,7 +58,7 @@ impl NetworkWrapper {
             .inner
             .join_room(&join_info)
             .map_err(to_js)?
-            .map_ok(|room_id| JsValue::from_str(&room_id.to_string()))
+            .map_ok(|room| JsValue::from_str(&room.id.to_string()))
             .map_err(to_js);
         Ok(wasm_bindgen_futures::future_to_promise(future))
     }
@@ -67,7 +67,8 @@ impl NetworkWrapper {
         self.inner.inner.update();
         let room_id = std::str::FromStr::from_str(&room_id).ok()?;
         self.inner.inner.get_room(&room_id).map(|room| {
-            room.players
+            room.state
+                .players
                 .iter()
                 .map(|player| {
                     log::debug!("{}", player.name);

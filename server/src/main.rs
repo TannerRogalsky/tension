@@ -1,13 +1,12 @@
+mod state;
+
 use futures::{SinkExt, StreamExt};
-use warp::Filter;
+use warp::{Filter, Reply};
 
 type ArcRw<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
 
 type CustomMessageType = ();
 type CustomMessage = shared::Message<CustomMessageType>;
-type CustomClientGeneric<T> = shared::Client<T, net::Send<T>, net::Recv<T>, rand::rngs::StdRng>;
-type CustomClient = CustomClientGeneric<CustomMessageType>;
-type ArcClient = ArcRw<CustomClient>;
 
 type EventSink = futures::channel::mpsc::UnboundedSender<CustomMessage>;
 
@@ -23,48 +22,40 @@ async fn main() -> eyre::Result<()> {
     // channels HTTP events into the Client's receiver
     let (event_send, mut event_recv) = futures::channel::mpsc::unbounded();
 
-    let (from_ws_http, game_in) = crossbeam_channel::unbounded();
+    // let (from_ws_http, game_in) = crossbeam_channel::unbounded();
     let (game_out, mut to_websocket) = tokio::sync::mpsc::unbounded_channel();
 
-    let rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
-    let client = CustomClient::new(game_out.into(), game_in.into(), rng);
-    let game = std::sync::Arc::new(tokio::sync::RwLock::new(client));
+    // let rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
+    // let client = CustomClient::new(game_out.into(), game_in.into(), rng);
+    // let game = std::sync::Arc::new(tokio::sync::RwLock::new(client));
 
+    let state = state::State::new(game_out.clone());
     let connections = PlayerConnections::default();
 
     tokio::spawn({
-        let game = game.clone();
         async move {
             // pump the async HTTP/WS messages into the sync game channel
             while let Some(msg) = event_recv.next().await {
-                if let Err(err) = from_ws_http.send(msg) {
+                if let Err(err) = game_out.send(msg) {
                     log::error!("{:?}", err);
-                } else {
-                    let mut game_lock = game.write().await;
-                    game_lock.update();
                 }
             }
         }
     });
 
     tokio::spawn({
-        let game = game.clone();
+        let state = state.clone();
         let connections = connections.clone();
         async move {
             while let Some(msg) = to_websocket.recv().await {
-                let game = game.read().await;
-                if let Some(room) = game.get_room(&msg.target()) {
+                if let Some(players) = state.players(msg.target()).await {
                     match serde_json::to_string(&msg) {
                         Ok(msg) => {
                             let mut connections = connections.write().await;
                             let mut results = connections
                                 .iter_mut()
                                 .filter_map(|(player_id, sender)| {
-                                    let player_in_room = room
-                                        .players()
-                                        .iter()
-                                        .find(|player| player.id == *player_id);
-                                    if player_in_room.is_some() {
+                                    if players.contains(player_id) {
                                         Some(sender.send(warp::ws::Message::text(msg.clone())))
                                     } else {
                                         None
@@ -94,7 +85,7 @@ async fn main() -> eyre::Result<()> {
     // event_recv + [ws_recvs, ...] -> game_recv
     // game_send -> predicate -> [ws_sends, ...]
 
-    let client_state = warp::any().map(move || game.clone());
+    let client_state = warp::any().map(move || state.clone());
     let event_send = warp::any().map(move || event_send.clone());
     let connections = warp::any().map(move || connections.clone());
     let player_id_cookie = warp::cookie::cookie("game-player-id");
@@ -104,16 +95,18 @@ async fn main() -> eyre::Result<()> {
         .and(player_id_cookie)
         .and(event_send.clone())
         .and(connections)
+        .and(client_state.clone())
         .map(
             |ws: warp::ws::Ws,
              id: String,
              event_sink: EventSink,
-             connections: PlayerConnections| {
+             connections: PlayerConnections,
+             state: state::State| {
                 use warp::Reply;
                 match std::str::FromStr::from_str(&id) {
                     Ok(id) => ws
                         .on_upgrade(move |websocket| {
-                            on_ws_connect(websocket, id, event_sink, connections)
+                            on_ws_connect(websocket, id, event_sink, connections, state)
                         })
                         .into_response(),
                     Err(_err) => {
@@ -135,7 +128,7 @@ async fn main() -> eyre::Result<()> {
     let join_room = warp::path(shared::ENDPOINT_JOIN_ROOM)
         .and(warp::post())
         .and(player_id_cookie)
-        .and(event_send.clone())
+        .and(client_state.clone())
         .and(warp::body::content_length_limit(1024 * 16))
         .and(warp::body::json())
         .and_then(join_room);
@@ -158,6 +151,7 @@ async fn on_ws_connect(
     id: shared::PlayerID,
     mut event_sink: EventSink,
     connections: PlayerConnections,
+    mut state: state::State,
 ) {
     log::debug!("new ws connection");
     let (sx, mut rx) = ws.split();
@@ -192,24 +186,24 @@ async fn on_ws_connect(
         }
     }
 
+    state.disconnect(id).await;
     if let None = connections.write().await.remove(&id) {
         log::warn!("Attempted to remove player connection that was not present.");
     }
-    // event_sink.send(CustomMessage::left("*", id));
 }
 
 async fn create_room(
     player_id: String,
-    state: ArcClient,
+    mut state: state::State,
     player: shared::PlayerName,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     if let Ok(player_id) = std::str::FromStr::from_str(&player_id) {
-        let mut client = state.write().await;
-        let room = client.create_room(shared::Player {
+        let player = shared::Player {
             id: player_id,
             name: player,
-        });
-        Ok(warp::reply::json(&room.id))
+        };
+        let room_id = state.create_room(player).await;
+        Ok(warp::reply::json(&room_id))
     } else {
         Err(warp::reject())
     }
@@ -217,31 +211,25 @@ async fn create_room(
 
 async fn join_room(
     player_id: String,
-    mut event_send: EventSink,
+    mut state: state::State,
     join_info: shared::RoomJoinInfo,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
     let room_id = std::convert::TryInto::<shared::RoomID>::try_into(join_info.room_id).ok();
     let player_id = std::str::FromStr::from_str(&player_id).ok();
     let result = match room_id.zip(player_id) {
         Some((room_id, player_id)) => {
-            let msg = shared::Message::joined(
-                room_id,
-                shared::Player {
-                    id: player_id,
-                    name: join_info.player_name,
-                },
-            );
-            match event_send.send(msg).await {
-                Ok(_) => warp::reply::with_status("", warp::hyper::StatusCode::OK),
-                Err(_) => {
-                    warp::reply::with_status("", warp::hyper::StatusCode::INTERNAL_SERVER_ERROR)
-                }
-            }
+            let player = shared::Player {
+                id: player_id,
+                name: join_info.player_name,
+            };
+            let room = state.join_room(player, room_id).await;
+            warp::reply::json(&room).into_response()
         }
         None => warp::reply::with_status(
             "could not parse room id",
             warp::hyper::StatusCode::BAD_REQUEST,
-        ),
+        )
+        .into_response(),
     };
     Ok(result)
 }

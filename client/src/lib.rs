@@ -464,7 +464,7 @@ mod net {
 
     pub struct Client {
         base_url: String,
-        pub inner: shared::Client<(), Send, Recv, rand::rngs::SmallRng>,
+        pub inner: shared::Client<(), Send, Recv>,
     }
 
     impl Client {
@@ -472,8 +472,7 @@ mod net {
             let ws_url = String::from("ws://") + &base_url + shared::ENDPOINT_WS;
             let ws = websocket::WebSocket::connect(&ws_url).await?;
             let (sx, rx) = ws.into_channels();
-            let rng = rand::SeedableRng::seed_from_u64(0);
-            let inner = shared::Client::new(sx.into(), rx.into(), rng);
+            let inner = shared::Client::new(sx.into(), rx.into());
             Ok(Self { base_url, inner })
         }
 
@@ -492,9 +491,9 @@ mod net {
                 .send()
                 .map_err(eyre::Report::from)
                 .and_then(|response| response.text().map_err(eyre::Report::from))
-                .and_then(
-                    |text| async move { serde_json::from_str(&text).map_err(eyre::Report::from) },
-                )
+                .map(|result: eyre::Result<String>| {
+                    result.and_then(|text| serde_json::from_str(&text).map_err(eyre::Report::from))
+                })
                 .boxed_local();
 
             Ok(NetFuture { inner })
@@ -503,7 +502,7 @@ mod net {
         pub fn join_room(
             &self,
             join_info: &shared::RoomJoinInfo,
-        ) -> eyre::Result<NetFuture<shared::RoomID>> {
+        ) -> eyre::Result<NetFuture<shared::RoomState>> {
             let body = serde_json::to_string(&join_info)?;
             let url = String::from("http://") + &self.base_url + shared::ENDPOINT_JOIN_ROOM;
 
@@ -515,9 +514,9 @@ mod net {
                 .send()
                 .map_err(eyre::Report::from)
                 .and_then(|response| response.text().map_err(eyre::Report::from))
-                .and_then(
-                    |text| async move { serde_json::from_str(&text).map_err(eyre::Report::from) },
-                )
+                .map(|result: eyre::Result<String>| {
+                    result.and_then(|text| serde_json::from_str(&text).map_err(eyre::Report::from))
+                })
                 .boxed_local();
 
             Ok(NetFuture { inner })

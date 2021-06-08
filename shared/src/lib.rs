@@ -14,40 +14,23 @@ pub trait Sender<T> {
     fn send(&self, msg: Message<T>) -> Result<(), ()>;
 }
 
-pub struct Client<T, S, R, RNG> {
+pub struct Client<T, S, R> {
     recv: R,
     send: S,
     rooms: Lookup<RoomID, Room<T>>,
-    rng: RNG,
 }
 
-impl<T, S, R, RNG> Client<T, S, R, RNG>
+impl<T, S, R> Client<T, S, R>
 where
     R: Receiver<T>,
     S: Sender<T>,
-    RNG: rand::Rng,
 {
-    pub fn new(send: S, recv: R, rng: RNG) -> Self {
+    pub fn new(send: S, recv: R) -> Self {
         Self {
             send,
             recv,
             rooms: Default::default(),
-            rng,
         }
-    }
-
-    pub fn create_room(&mut self, owner: Player) -> RoomRead<'_, T, S> {
-        let id = RoomID::new(&mut self.rng);
-        let room = Room {
-            id,
-            players: vec![owner.clone()],
-            custom_messages: Default::default(),
-        };
-        self.rooms.insert(id, room);
-        if let Err(_err) = self.send.send(Message::joined(id, owner)) {
-            log::error!("Failed to send Room Join notification.");
-        }
-        self.get_room(&id).unwrap()
     }
 
     pub fn get_room(&self, id: &RoomID) -> Option<RoomRead<'_, T, S>> {
@@ -62,11 +45,12 @@ where
             if let Some(room) = self.rooms.get_mut(&msg.target) {
                 match msg.ty {
                     MessageType::PlayerJoined(player) => {
-                        room.players.push(player);
+                        room.state.players.push(player);
                     }
                     MessageType::PlayerLeft(player) => {
-                        if let Some(position) = room.players.iter().position(|p| p == &player) {
-                            room.players.remove(position);
+                        let players = &mut room.state.players;
+                        if let Some(position) = players.iter().position(|p| p.id == player) {
+                            players.remove(position);
                         }
                     }
                     MessageType::Custom(v) => room.custom_messages.push_back(v),
@@ -75,8 +59,10 @@ where
                 self.rooms.insert(
                     msg.target,
                     Room {
-                        id: msg.target,
-                        players: vec![player],
+                        state: RoomState {
+                            id: msg.target,
+                            players: vec![player],
+                        },
                         custom_messages: Default::default(),
                     },
                 );
@@ -99,7 +85,7 @@ impl<T> Message<T> {
         }
     }
 
-    pub fn left(target: RoomID, player: Player) -> Self {
+    pub fn left(target: RoomID, player: PlayerID) -> Self {
         Self {
             target,
             ty: MessageType::PlayerLeft(player),
@@ -114,7 +100,7 @@ impl<T> Message<T> {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MessageType<T> {
     PlayerJoined(Player),
-    PlayerLeft(Player),
+    PlayerLeft(PlayerID),
     Custom(T),
 }
 
@@ -175,16 +161,21 @@ impl std::fmt::Display for RoomID {
     }
 }
 
-#[derive(Debug)]
-pub struct Room<T> {
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomState {
     pub id: RoomID,
     pub players: Vec<Player>,
+}
+
+#[derive(Debug)]
+pub struct Room<T> {
+    pub state: RoomState,
     pub custom_messages: std::collections::VecDeque<T>,
 }
 
 impl<T> Room<T> {
     pub fn players(&self) -> &[Player] {
-        &self.players
+        &self.state.players
     }
 }
 
@@ -208,7 +199,7 @@ where
 {
     pub fn send(&self, msg: T) -> Result<(), ()> {
         self.sender.send(Message {
-            target: self.room.id,
+            target: self.room.state.id,
             ty: MessageType::Custom(msg),
         })
     }

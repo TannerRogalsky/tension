@@ -5,29 +5,74 @@
     <title>Tension</title>
 </head>
 <body>
+    Create
+    <form autocomplete="off" id="form-create">
+        <input autocomplete="off" name="hidden" type="text" style="display:none;">
+        <div class="name">
+            <label for="username" class="text-signin" >NAME</label>
+            <input name="name" id="username-create" type="text" placeholder="ENTER YOUR NAME" maxlength="12" autocapitalize="off" autocorrect="off" autocomplete="off">
+        </div>
+        <button type="submit" id="button-create" class="button-signin button-blue ready">
+            CREATE
+        </button>
+    </form>
+    Join
+    <form autocomplete="off" id="form-join">
+        <div class="roomCode">
+            <label for="roomcode" class="text-signin"> ROOM CODE </label>
+            <input name="roomcode" id="roomcode" type="text" tabindex="0" placeholder="ENTER 4-LETTER CODE"maxlength="4" value="" autocapitalize="off" autocorrect="off" autocomplete="off">
+        </div>
+        <div class="name">
+            <label for="username" class="text-signin">NAME</label>
+            <input name="name" id="username-join" type="text" placeholder="ENTER YOUR NAME" maxlength="12" autocapitalize="off" autocorrect="off" autocomplete="off">
+        </div>
+        <button type="submit" id="button-join" class="button-signin button-blue ready">
+            PLAY
+        </button>
+    </form>
     <script type="module">
         import init, { Network } from './tension/client.js';
 
         import Cookies from 'https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.mjs';
 
+        const userID = new Uint32Array(1);
+        window.crypto.getRandomValues(userID);
+        Cookies.set('game-player-id', userID.join(''));
+
+        let network = null;
+
         async function run() {
             await init();
-
-            const userID = new Uint32Array(1);
-            window.crypto.getRandomValues(userID);
-            Cookies.set('game-player-id', userID.join(''));
-
-            let network = await Network.connect(window.location.host + window.location.pathname);
-            let roomID = await network.create_room("Tanner");
-            console.log(roomID);
-
-            console.log(network.players(roomID));
-            setTimeout(() => {
-                console.log(network.players(roomID));
-            }, 500);
+            network = await Network.connect(window.location.host + window.location.pathname);
         }
         run();
+
+        async function create(event) {
+            event.preventDefault();
+
+            let name = document.getElementById("username-create").value;
+            let roomID = await network.create_room(name);
+            console.log(roomID);
+
+            setInterval(function() {
+                console.log(network.players(roomID));
+            }, 1000);
+
+            return false;
+        }
+        document.getElementById("form-create").addEventListener("submit", create);
+
+        async function join(event) {
+            event.preventDefault();
+
+            let roomCode = document.getElementById("roomcode").value;
+            let name = document.getElementById("username-join").value;
+            let roomID = await network.join_room(name, roomCode);
+            console.log(roomID);
+
+            return false;
+        }
+        document.getElementById("form-join").addEventListener("submit", join);
     </script>
-    Hello
 </body>
 </html>
