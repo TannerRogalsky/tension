@@ -5,8 +5,8 @@
     <title>Tension</title>
 </head>
 <body>
-    Create
     <form autocomplete="off" id="form-create">
+        Create
         <input autocomplete="off" name="hidden" type="text" style="display:none;">
         <div class="name">
             <label for="username" class="text-signin" >NAME</label>
@@ -16,8 +16,8 @@
             CREATE
         </button>
     </form>
-    Join
     <form autocomplete="off" id="form-join">
+        Join
         <div class="roomCode">
             <label for="roomcode" class="text-signin"> ROOM CODE </label>
             <input name="roomcode" id="roomcode" type="text" tabindex="0" placeholder="ENTER 4-LETTER CODE"maxlength="4" value="" autocapitalize="off" autocorrect="off" autocomplete="off">
@@ -30,14 +30,23 @@
             PLAY
         </button>
     </form>
+    <canvas id="game" width="720" height="480" style="display: none;"></canvas>
     <script type="module">
-        import init, { Network } from './tension/client.js';
+        import init, { Tension, Network } from './tension/client.js';
 
         import Cookies from 'https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.mjs';
 
         const userID = new Uint32Array(1);
         window.crypto.getRandomValues(userID);
         Cookies.set('game-player-id', userID.join(''));
+
+        const isLeft = (button) => {
+            if (button === 0) {
+                return true;
+            } else if (button === 2) {
+                return false;
+            }
+        }
 
         let network = null;
 
@@ -47,6 +56,58 @@
         }
         run();
 
+        const canvas = document.getElementById("game");
+        function start() {
+            for (let form of document.getElementsByTagName("form")) {
+                form.style.display = "none";
+            }
+
+            let time = performance.now();
+            let game = new Tension(canvas, time, network);
+
+            canvas.addEventListener('keyup', (event) => {
+                let key_code = keyToCode[event.key];
+                if (key_code !== undefined && game) {
+                    game.handle_key_up(key_code);
+                    event.preventDefault();
+                }
+            });
+
+            canvas.addEventListener('mousedown', (event) => {
+                let button = isLeft(event.button);
+                if (button !== undefined && game) {
+                    game.handle_mouse_down(button);
+                }
+            });
+
+            canvas.addEventListener('mousemove', (event) => {
+                if (game) {
+                    game.handle_mouse_move(event.offsetX, event.offsetY);
+                }
+            });
+
+            canvas.oncontextmenu = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                return false;
+            };
+
+            window.addEventListener('mouseup', (event) => {
+                let button = isLeft(event.button);
+                if (button !== undefined) {
+                    game.handle_mouse_up(button);
+                }
+            });
+
+            canvas.style.display = "block";
+
+            let loop = () => {
+                requestAnimationFrame(loop);
+                game.step(performance.now());
+            }
+            requestAnimationFrame(loop);
+        }
+
         async function create(event) {
             event.preventDefault();
 
@@ -54,6 +115,8 @@
             let room_state = await network.create_room(name).await();
             network.use_initial_state(room_state);
             network.debug_state();
+
+            start();
 
             return false;
         }
@@ -67,6 +130,8 @@
             let room_state = await network.join_room(name, roomCode).await();
             network.use_initial_state(room_state);
             network.debug_state();
+
+            start();
 
             return false;
         }

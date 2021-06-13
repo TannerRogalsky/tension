@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 
 type Lookup<K, V> = std::collections::HashMap<K, V>;
 
-pub type CustomMessage = ();
-
 pub const ENDPOINT_WS: &'static str = "socket";
 pub const ENDPOINT_CREATE_ROOM: &'static str = "create";
 pub const ENDPOINT_JOIN_ROOM: &'static str = "join";
@@ -232,6 +230,11 @@ impl std::str::FromStr for PlayerID {
 pub struct Player {
     pub id: PlayerID,
     pub name: PlayerName,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CustomMessage {
+    StartGame,
 }
 
 #[cfg(test)]
