@@ -30,7 +30,7 @@
             PLAY
         </button>
     </form>
-    <canvas id="game" width="720" height="480" style="display: none;"></canvas>
+    <canvas id="game" width="1280" height="720" style="display: none;"></canvas>
     <script type="module">
         import init, { Tension, Network } from './tension/client.js';
 
@@ -82,7 +82,10 @@
 
             canvas.addEventListener('mousemove', (event) => {
                 if (game) {
-                    game.handle_mouse_move(event.offsetX, event.offsetY);
+                    const rect = canvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    game.handle_mouse_move(x, y);
                 }
             });
 
