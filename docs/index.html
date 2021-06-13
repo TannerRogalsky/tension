@@ -51,12 +51,9 @@
             event.preventDefault();
 
             let name = document.getElementById("username-create").value;
-            let roomID = await network.create_room(name);
-            console.log(roomID);
-
-            setInterval(function() {
-                console.log(network.players(roomID));
-            }, 1000);
+            let room_state = await network.create_room(name).await();
+            network.use_initial_state(room_state);
+            network.debug_state();
 
             return false;
         }
@@ -67,8 +64,9 @@
 
             let roomCode = document.getElementById("roomcode").value;
             let name = document.getElementById("username-join").value;
-            let roomID = await network.join_room(name, roomCode);
-            console.log(roomID);
+            let room_state = await network.join_room(name, roomCode).await();
+            network.use_initial_state(room_state);
+            network.debug_state();
 
             return false;
         }

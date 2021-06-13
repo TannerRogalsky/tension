@@ -7,8 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["server"] }
 tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1.6", features = ["sync"] }
 futures = "0.3.15"
 warp = "0.3"
 rand = "0.8.3"

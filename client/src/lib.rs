@@ -413,58 +413,49 @@ mod physics {
 }
 
 mod net {
-    use futures::{FutureExt, TryFutureExt};
-    use shared::Message;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
+    use futures::{Future, FutureExt, TryFutureExt};
 
-    pub struct Recv(websocket::WsRecv);
-    pub struct Send(websocket::WsSend);
-
-    impl From<websocket::WsRecv> for Recv {
-        fn from(inner: websocket::WsRecv) -> Self {
-            Self(inner)
-        }
+    #[derive(Debug)]
+    pub struct Room {
+        pub state: shared::viewer::RoomState,
     }
 
-    impl<T> shared::Receiver<T> for Recv
-    where
-        T: for<'a> serde::Deserialize<'a>,
-    {
-        fn try_recv(&self) -> Result<Message<T>, ()> {
-            self.0.try_recv().map_err(|_| ()).and_then(|msg| {
-                use websocket::Message;
-                match msg {
-                    Message::Text(text) => serde_json::from_str(&text),
-                    Message::Binary(data) => serde_json::from_slice(&data),
+    #[derive(Debug)]
+    pub struct Player {
+        pub inner: shared::viewer::User,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct State {
+        pub rooms: std::collections::HashMap<shared::RoomID, Room>,
+        pub users: std::collections::HashMap<shared::PlayerID, Player>,
+    }
+
+    impl State {
+        pub fn handle_msg(&mut self, msg: shared::viewer::StateChange<shared::CustomMessage>) {
+            if let Some(room) = self.rooms.get_mut(&msg.target) {
+                use shared::viewer::ChangeType;
+                match msg.ty {
+                    ChangeType::UserJoin(user) => {
+                        room.state.users.push(user.id);
+                        self.users.insert(user.id, Player { inner: user });
+                    }
+                    ChangeType::UserLeave(user_id) => {
+                        room.state.users.retain(|user| user != &user_id);
+                        self.users.remove(&user_id);
+                    }
+                    ChangeType::Custom(_) => {}
                 }
-                .map_err(|_| ())
-            })
+            }
         }
     }
 
-    impl From<websocket::WsSend> for Send {
-        fn from(inner: websocket::WsSend) -> Self {
-            Self(inner)
-        }
-    }
-
-    impl<T> shared::Sender<T> for Send
-    where
-        T: serde::Serialize,
-    {
-        fn send(&self, msg: Message<T>) -> Result<(), ()> {
-            let data = serde_json::to_vec(&msg).map_err(|_| ())?;
-            self.0
-                .send(websocket::Message::Binary(data))
-                .map_err(|_| ())
-        }
-    }
-
+    // could guard against polling the websocket buffer while a create/join request is in flight
     pub struct Client {
         base_url: String,
-        pub inner: shared::Client<(), Send, Recv>,
+        sx: websocket::WsSend,
+        rx: websocket::WsRecv,
+        state: State,
     }
 
     impl Client {
@@ -472,19 +463,55 @@ mod net {
             let ws_url = String::from("ws://") + &base_url + shared::ENDPOINT_WS;
             let ws = websocket::WebSocket::connect(&ws_url).await?;
             let (sx, rx) = ws.into_channels();
-            let inner = shared::Client::new(sx.into(), rx.into());
-            Ok(Self { base_url, inner })
+            Ok(Self {
+                base_url,
+                sx,
+                rx,
+                state: Default::default(),
+            })
+        }
+
+        pub fn view(&self) -> &State {
+            &self.state
+        }
+
+        pub fn handle_new_room_state(&mut self, room_state: shared::viewer::RoomState) {
+            self.state
+                .rooms
+                .insert(room_state.id, Room { state: room_state });
+        }
+
+        pub fn update(&mut self) {
+            use shared::viewer::StateChange;
+            while let Ok(msg) = self.rx.try_recv() {
+                let parsed_msg = match msg {
+                    websocket::Message::Text(text) => {
+                        serde_json::from_str::<StateChange<shared::CustomMessage>>(&text)
+                    }
+                    websocket::Message::Binary(bin) => {
+                        serde_json::from_slice::<StateChange<shared::CustomMessage>>(&bin)
+                    }
+                };
+                match parsed_msg {
+                    Ok(msg) => {
+                        self.state.handle_msg(msg);
+                    }
+                    Err(err) => {
+                        log::error!("{}", err);
+                    }
+                }
+            }
         }
 
         pub fn create_room(
             &self,
             player: shared::PlayerName,
-        ) -> eyre::Result<NetFuture<shared::RoomID>> {
+        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::RoomState>>> {
             let body = serde_json::to_string(&player)?;
             let url = String::from("http://") + &self.base_url + shared::ENDPOINT_CREATE_ROOM;
 
             let client = reqwest::Client::new();
-            let inner = client
+            Ok(client
                 .post(url)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(body)
@@ -493,21 +520,18 @@ mod net {
                 .and_then(|response| response.text().map_err(eyre::Report::from))
                 .map(|result: eyre::Result<String>| {
                     result.and_then(|text| serde_json::from_str(&text).map_err(eyre::Report::from))
-                })
-                .boxed_local();
-
-            Ok(NetFuture { inner })
+                }))
         }
 
         pub fn join_room(
             &self,
             join_info: &shared::RoomJoinInfo,
-        ) -> eyre::Result<NetFuture<shared::RoomState>> {
+        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::RoomState>>> {
             let body = serde_json::to_string(&join_info)?;
             let url = String::from("http://") + &self.base_url + shared::ENDPOINT_JOIN_ROOM;
 
             let client = reqwest::Client::new();
-            let inner = client
+            Ok(client
                 .post(url)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(body)
@@ -516,23 +540,7 @@ mod net {
                 .and_then(|response| response.text().map_err(eyre::Report::from))
                 .map(|result: eyre::Result<String>| {
                     result.and_then(|text| serde_json::from_str(&text).map_err(eyre::Report::from))
-                })
-                .boxed_local();
-
-            Ok(NetFuture { inner })
-        }
-    }
-
-    #[must_use = "futures do nothing unless you `.await` or poll them"]
-    pub struct NetFuture<T> {
-        inner: futures::future::LocalBoxFuture<'static, eyre::Result<T>>,
-    }
-
-    impl<T> Future for NetFuture<T> {
-        type Output = eyre::Result<T>;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            self.inner.poll_unpin(cx)
+                }))
         }
     }
 }

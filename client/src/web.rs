@@ -1,4 +1,4 @@
-use futures::TryFutureExt;
+use futures::{FutureExt, TryFutureExt};
 use wasm_bindgen::prelude::*;
 
 fn to_js<E: std::fmt::Display>(v: E) -> JsValue {
@@ -34,47 +34,57 @@ impl NetworkWrapper {
         }
     }
 
-    pub fn create_room(&self, player: shared::PlayerName) -> Result<js_sys::Promise, JsValue> {
-        let future = self
-            .inner
+    pub fn create_room(&self, player: shared::PlayerName) -> Result<FutureWrapper, JsValue> {
+        self.inner
             .create_room(player)
-            .map_err(to_js)?
-            .map_ok(|room_id| JsValue::from_str(&room_id.to_string()))
-            .map_err(to_js);
-        Ok(wasm_bindgen_futures::future_to_promise(future))
+            .map_err(to_js)
+            .map(|fut| FutureWrapper(fut.boxed_local()))
     }
 
     pub fn join_room(
         &self,
         player: shared::PlayerName,
         room_id: String,
-    ) -> Result<js_sys::Promise, JsValue> {
+    ) -> Result<FutureWrapper, JsValue> {
         let room_id = std::str::FromStr::from_str(&room_id).map_err(to_js)?;
         let join_info = shared::RoomJoinInfo {
             room_id,
             player_name: player,
         };
-        let future = self
-            .inner
+        self.inner
             .join_room(&join_info)
-            .map_err(to_js)?
-            .map_ok(|room| JsValue::from_str(&room.id.to_string()))
-            .map_err(to_js);
-        Ok(wasm_bindgen_futures::future_to_promise(future))
+            .map_err(to_js)
+            .map(|fut| FutureWrapper(fut.boxed_local()))
     }
 
-    pub fn players(&mut self, room_id: String) -> Option<js_sys::Array> {
-        self.inner.inner.update();
-        let room_id = std::str::FromStr::from_str(&room_id).ok()?;
-        self.inner.inner.get_room(&room_id).map(|room| {
-            room.state
-                .players
-                .iter()
-                .map(|player| {
-                    log::debug!("{}", player.name);
-                    JsValue::from_str(&player.name)
-                })
-                .collect()
-        })
+    pub fn use_initial_state(&mut self, room_state: RoomStateWrapper) {
+        self.inner.handle_new_room_state(room_state.0);
+        self.inner.update();
+    }
+
+    pub fn debug_state(&mut self) {
+        log::debug!("{:#?}", self.inner.view());
+        for room in self.inner.view().rooms.keys() {
+            log::debug!("{}", room);
+        }
     }
 }
+
+#[wasm_bindgen]
+pub struct FutureWrapper(
+    futures::future::LocalBoxFuture<'static, eyre::Result<shared::viewer::RoomState>>,
+);
+
+#[wasm_bindgen]
+impl FutureWrapper {
+    #[wasm_bindgen(js_name = "await")]
+    pub async fn process(self) -> Result<RoomStateWrapper, JsValue> {
+        self.0
+            .map_ok(|room| RoomStateWrapper(room))
+            .map_err(to_js)
+            .await
+    }
+}
+
+#[wasm_bindgen(js_name = RoomState)]
+pub struct RoomStateWrapper(shared::viewer::RoomState);

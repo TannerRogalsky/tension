@@ -11,7 +11,7 @@ wasm-opt = ["-Oz", "--enable-mutable-globals"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["client"] }
 websocket = { path = "../websocket" }
 solstice-2d = { path = "../../solstice/solstice-2d" }
 #solstice-2d = "0.2"
