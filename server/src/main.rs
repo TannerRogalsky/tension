@@ -30,9 +30,7 @@ async fn main() -> eyre::Result<()> {
     // let game = std::sync::Arc::new(tokio::sync::RwLock::new(client));
 
     // let state = state::State::new(game_out.clone());
-    let state = std::sync::Arc::new(tokio::sync::RwLock::new(
-        shared::viewer::state::State::default(),
-    ));
+    let state = std::sync::Arc::new(tokio::sync::RwLock::new(shared::viewer::state::State::new()));
     let connections = PlayerConnections::default();
 
     // tokio::spawn({

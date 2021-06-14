@@ -52,7 +52,7 @@
 
         async function run() {
             await init();
-            network = await Network.connect(window.location.host + window.location.pathname);
+            network = await Network.connect(window.location.href);
         }
         run();
 

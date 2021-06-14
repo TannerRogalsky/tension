@@ -28,7 +28,6 @@ pub struct RoomState {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Command<T> {
-    Disconnect(UserID),
     Custom(RoomID, T),
 }
 
@@ -37,12 +36,13 @@ pub mod state {
     use super::*;
     use tokio::sync::broadcast as channel;
 
+    #[derive(Debug)]
     pub struct Room<T> {
         pub state: RoomState,
         pub channel: channel::Sender<StateChange<T>>,
     }
 
-    #[derive(Default)]
+    #[derive(Debug)]
     pub struct State<T> {
         pub users: std::collections::HashMap<UserID, User>,
         pub rooms: std::collections::HashMap<RoomID, Room<T>>,
@@ -50,6 +50,13 @@ pub mod state {
 
     /// When joining a room, is it better to join then sub or sub then join?
     impl<T: std::fmt::Debug + Clone> State<T> {
+        pub fn new() -> Self {
+            Self {
+                users: Default::default(),
+                rooms: Default::default(),
+            }
+        }
+
         pub fn register_user(&mut self, user: User) {
             let user_id = user.id;
             if self.users.insert(user_id, user).is_some() {
@@ -145,9 +152,6 @@ pub mod state {
 
         pub fn handle_command(&mut self, cmd: Command<T>) {
             match cmd {
-                Command::Disconnect(user_id) => {
-                    self.unregister_user(user_id);
-                }
                 Command::Custom(room_id, payload) => {
                     if let Some(room) = self.rooms.get(&room_id) {
                         let result = room.channel.send(StateChange {
