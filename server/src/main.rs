@@ -8,7 +8,7 @@ type CustomMessageType = shared::CustomMessage;
 
 // type EventSink = futures::channel::mpsc::UnboundedSender<CustomMessage>;
 
-type WsSink = futures::stream::SplitSink<warp::ws::WebSocket, warp::ws::Message>;
+type WsSink = tokio::sync::mpsc::UnboundedSender<warp::ws::Message>;
 type PlayerConnections = ArcRw<std::collections::HashMap<shared::PlayerID, WsSink>>;
 
 type State = std::sync::Arc<tokio::sync::RwLock<shared::viewer::state::State<CustomMessageType>>>;
@@ -136,6 +136,10 @@ async fn main() -> eyre::Result<()> {
         .and(warp::body::json())
         .and_then(join_room);
 
+    let debug_state = warp::path("debug")
+        .and(client_state.clone())
+        .and_then(debug_state);
+
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(std::path::PathBuf::from)
@@ -144,6 +148,7 @@ async fn main() -> eyre::Result<()> {
     let routes = ws
         .or(create_room)
         .or(join_room)
+        .or(debug_state)
         .or(warp::fs::dir(root.join("docs")));
 
     Ok(warp::serve(routes).run(([127, 0, 0, 1], 8000)).await)
@@ -156,12 +161,22 @@ async fn on_ws_connect(
     connections: PlayerConnections,
     state: State,
 ) {
-    log::debug!("new ws connection");
-    let (sx, mut rx) = ws.split();
+    log::debug!("New WS connection for User {:?}", id);
+    let (mut user_ws_tx, mut user_ws_rx) = ws.split();
+
+    let (sx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut rx = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    tokio::task::spawn(async move {
+        while let Some(msg) = rx.next().await {
+            if let Err(err) = user_ws_tx.send(msg).await {
+                eprintln!("websocket send error: {}", err);
+            }
+        }
+    });
 
     connections.write().await.insert(id, sx);
 
-    while let Some(result) = rx.next().await {
+    while let Some(result) = user_ws_rx.next().await {
         match result {
             Ok(msg) => {
                 let parse_attempt: Result<shared::viewer::Command<CustomMessageType>, _> =
@@ -191,6 +206,32 @@ async fn on_ws_connect(
     state.write().await.unregister_user(id);
     if let None = connections.write().await.remove(&id) {
         log::warn!("Attempted to remove player connection that was not present.");
+    } else {
+        log::debug!("Ended WS connection for User {:?}", id);
+    }
+}
+
+async fn ws_forward(
+    player_id: shared::PlayerID,
+    channel: tokio::sync::broadcast::Receiver<shared::viewer::StateChange<shared::CustomMessage>>,
+    connections: PlayerConnections,
+) {
+    let mut channel = tokio_stream::wrappers::BroadcastStream::new(channel);
+    while let Some(Ok(msg)) = channel.next().await {
+        match serde_json::to_string(&msg) {
+            Ok(msg) => {
+                let mut connections = connections.write().await;
+                // this unwrap will panic if the player has dropped which is a convenient but probably bad
+                // way to exit this loop
+                let socket = connections.get_mut(&player_id).unwrap();
+                if let Err(err) = socket.send(warp::ws::Message::text(msg)) {
+                    log::error!("{}", err);
+                }
+            }
+            Err(err) => {
+                log::error!("{}", err);
+            }
+        }
     }
 }
 
@@ -212,23 +253,7 @@ async fn create_room(
         let (room_state, channel) = state.subscribe(room_id).unwrap();
         drop(state);
 
-        tokio::spawn(async move {
-            let mut channel = tokio_stream::wrappers::BroadcastStream::new(channel);
-            while let Some(Ok(msg)) = channel.next().await {
-                match serde_json::to_string(&msg) {
-                    Ok(msg) => {
-                        let mut connections = connections.write().await;
-                        let socket = connections.get_mut(&player_id).unwrap();
-                        if let Err(err) = socket.send(warp::ws::Message::text(msg)).await {
-                            log::error!("{}", err);
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("{}", err);
-                    }
-                }
-            }
-        });
+        tokio::spawn(ws_forward(player_id, channel, connections));
         Ok(warp::reply::json(&room_state))
     } else {
         Err(warp::reject())
@@ -255,23 +280,7 @@ async fn join_room(
             let (room_state, channel) = state.subscribe(room_id).unwrap();
             drop(state);
 
-            tokio::spawn(async move {
-                let mut channel = tokio_stream::wrappers::BroadcastStream::new(channel);
-                while let Some(Ok(msg)) = channel.next().await {
-                    match serde_json::to_string(&msg) {
-                        Ok(msg) => {
-                            let mut connections = connections.write().await;
-                            let socket = connections.get_mut(&player_id).unwrap();
-                            if let Err(err) = socket.send(warp::ws::Message::text(msg)).await {
-                                log::error!("{}", err);
-                            }
-                        }
-                        Err(err) => {
-                            log::error!("{}", err);
-                        }
-                    }
-                }
-            });
+            tokio::spawn(ws_forward(player_id, channel, connections));
             warp::reply::json(&room_state).into_response()
         }
         None => warp::reply::with_status(
@@ -281,6 +290,28 @@ async fn join_room(
         .into_response(),
     };
     Ok(result)
+}
+
+async fn debug_state(state: State) -> Result<impl warp::Reply, std::convert::Infallible> {
+    let state = state.read().await;
+    let state = state
+        .rooms
+        .values()
+        .map(|room| {
+            let users = room
+                .state
+                .users
+                .iter()
+                .filter_map(|user_id| state.users.get(user_id).cloned())
+                .collect::<Vec<_>>();
+            shared::viewer::InitialRoomState {
+                id: room.state.id,
+                users,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(warp::reply::json(&state))
 }
 
 mod net {

@@ -169,7 +169,7 @@ impl NetworkWrapper {
 
 #[wasm_bindgen]
 pub struct FutureWrapper {
-    fut: futures::future::LocalBoxFuture<'static, eyre::Result<shared::viewer::RoomState>>,
+    fut: futures::future::LocalBoxFuture<'static, eyre::Result<shared::viewer::InitialRoomState>>,
     local_user: shared::viewer::User,
 }
 
@@ -187,7 +187,7 @@ impl FutureWrapper {
 
 #[wasm_bindgen(js_name = RoomState)]
 pub struct RoomStateWrapper {
-    room: shared::viewer::RoomState,
+    room: shared::viewer::InitialRoomState,
     local_user: shared::viewer::User,
 }
 

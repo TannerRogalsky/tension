@@ -58,6 +58,7 @@ impl Game {
                 states::StateContext {
                     g: self.gfx.lock(&mut self.ctx),
                     resources: &self.resources,
+                    ws: &self.ws,
                     input_state: &self.input_state,
                     time: &self.time,
                 },
@@ -68,6 +69,7 @@ impl Game {
             .render(states::StateContext {
                 g: self.gfx.lock(&mut self.ctx),
                 resources: &self.resources,
+                ws: &self.ws,
                 input_state: &self.input_state,
                 time: &self.time,
             });
@@ -75,7 +77,7 @@ impl Game {
 
     pub fn handle_new_room_state(
         &mut self,
-        room: shared::viewer::RoomState,
+        room: shared::viewer::InitialRoomState,
         local_user: shared::viewer::User,
     ) {
         self.state = Some(states::State::lobby(local_user, room))
@@ -101,6 +103,7 @@ impl Game {
                 states::StateContext {
                     g: self.gfx.lock(&mut self.ctx),
                     resources: &self.resources,
+                    ws: &self.ws,
                     input_state: &self.input_state,
                     time: &self.time,
                 },
@@ -207,8 +210,8 @@ pub mod net {
         }
 
         pub fn try_recv_iter(
-            &mut self,
-        ) -> impl Iterator<Item = shared::viewer::Command<shared::CustomMessage>> + '_ {
+            &self,
+        ) -> impl Iterator<Item = shared::viewer::StateChange<shared::CustomMessage>> + '_ {
             std::iter::from_fn(move || {
                 while let Ok(msg) = self.rx.try_recv() {
                     let parsed = match msg {
@@ -230,7 +233,8 @@ pub mod net {
         pub fn create_room(
             &self,
             player: &shared::PlayerName,
-        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::RoomState>>> {
+        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::InitialRoomState>>>
+        {
             let body = serde_json::to_string(&player)?;
             let url = self.base_url.join(shared::ENDPOINT_CREATE_ROOM)?;
 
@@ -250,7 +254,8 @@ pub mod net {
         pub fn join_room(
             &self,
             join_info: &shared::RoomJoinInfo,
-        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::RoomState>>> {
+        ) -> eyre::Result<impl Future<Output = eyre::Result<shared::viewer::InitialRoomState>>>
+        {
             let body = serde_json::to_string(&join_info)?;
             let url = self.base_url.join(shared::ENDPOINT_JOIN_ROOM)?;
 

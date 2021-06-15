@@ -16,11 +16,11 @@ impl Default for State {
 }
 
 impl State {
-    pub fn lobby(local_user: shared::viewer::User, room: shared::viewer::RoomState) -> Self {
+    pub fn lobby(local_user: shared::viewer::User, room: shared::viewer::InitialRoomState) -> Self {
         Self::Lobby(lobby::Lobby::new(local_user, room))
     }
 
-    pub fn update(mut self, dt: std::time::Duration, _ctx: StateContext) -> Self {
+    pub fn update(mut self, dt: std::time::Duration, ctx: StateContext) -> Self {
         match self {
             Self::NoRoom(ref mut inner) => {
                 inner.update(dt);
@@ -30,7 +30,10 @@ impl State {
                 inner.update(dt);
                 self
             }
-            _ => self,
+            Self::Lobby(ref mut inner) => {
+                inner.update(dt, ctx);
+                self
+            }
         }
     }
 
@@ -63,6 +66,7 @@ impl State {
 pub struct StateContext<'a, 'b, 'c> {
     pub g: solstice_2d::GraphicsLock<'b, 'c>,
     pub resources: &'a super::resources::LoadedResources,
+    pub ws: &'a super::net::Client,
     pub input_state: &'a super::InputState,
     pub time: &'a std::time::Duration,
 }

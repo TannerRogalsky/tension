@@ -26,6 +26,12 @@ pub struct RoomState {
     pub users: Vec<UserID>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitialRoomState {
+    pub id: RoomID,
+    pub users: Vec<User>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Command<T> {
     Custom(RoomID, T),
@@ -68,10 +74,19 @@ pub mod state {
         pub fn subscribe(
             &self,
             room_id: RoomID,
-        ) -> Option<(RoomState, channel::Receiver<StateChange<T>>)> {
-            self.rooms
-                .get(&room_id)
-                .map(|room| (room.state.clone(), room.channel.subscribe()))
+        ) -> Option<(InitialRoomState, channel::Receiver<StateChange<T>>)> {
+            self.rooms.get(&room_id).map(|room| {
+                let initial_state = InitialRoomState {
+                    id: room.state.id,
+                    users: room
+                        .state
+                        .users
+                        .iter()
+                        .filter_map(|user_id| self.users.get(user_id).cloned())
+                        .collect(),
+                };
+                (initial_state, room.channel.subscribe())
+            })
         }
 
         pub fn create_room(&mut self) -> RoomID {
