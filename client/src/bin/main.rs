@@ -13,12 +13,38 @@ fn main() -> eyre::Result<()> {
     let (glow_ctx, window) = window::init_ctx(wb, &event_loop);
     let ctx = solstice_2d::solstice::Context::new(glow_ctx);
 
+    let mut rng: rand::rngs::SmallRng =
+        rand::SeedableRng::seed_from_u64(std::time::UNIX_EPOCH.elapsed().unwrap().as_secs());
+    let local_user = shared::viewer::User {
+        id: shared::PlayerID::gen(&mut rng),
+        name: "Native Tester".to_string(),
+    };
+    let ws = net::Client::new("http://localhost:8000/".to_string());
+    let ws = futures::executor::block_on(ws)?;
+
+    let resources_folder = std::path::PathBuf::new()
+        .join(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("docs");
+    let fonts_folder = resources_folder.join("fonts");
+    let resources = resources::Resources {
+        sans_font_data: std::fs::read(fonts_folder.join("Inconsolata-Regular.ttf"))?,
+    };
+
     let now = {
         let epoch = std::time::Instant::now();
         move || epoch.elapsed()
     };
 
-    let mut game = Game::new(ctx, now(), width as _, height as _)?;
+    let mut game = Game::new(ctx, now(), width as _, height as _, ws, resources)?;
+    game.handle_new_room_state(
+        shared::viewer::RoomState {
+            id: shared::RoomID::new(&mut rng),
+            users: vec![],
+        },
+        local_user,
+    );
 
     event_loop.run(move |event, _, cf| {
         use glutin::{event::*, event_loop::ControlFlow};

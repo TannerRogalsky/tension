@@ -32,13 +32,16 @@
     </form>
     <canvas id="game" width="1280" height="720" style="display: none;"></canvas>
     <script type="module">
-        import init, { Tension, Network } from './tension/client.js';
+        import init, { Tension, Network, Resources } from './tension/client.js';
 
         import Cookies from 'https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.mjs';
 
-        const userID = new Uint32Array(1);
-        window.crypto.getRandomValues(userID);
-        Cookies.set('game-player-id', userID.join(''));
+        let font_data_promise = fetch('./fonts/Inconsolata-Regular.ttf').then(r => r.arrayBuffer());
+
+        const userIDBuffer = new Uint32Array(1);
+        window.crypto.getRandomValues(userIDBuffer);
+        const userID = userIDBuffer.join('');
+        Cookies.set('game-player-id', userID);
 
         const isLeft = (button) => {
             if (button === 0) {
@@ -57,13 +60,16 @@
         run();
 
         const canvas = document.getElementById("game");
-        function start() {
+        async function start(room_state_promise) {
             for (let form of document.getElementsByTagName("form")) {
                 form.style.display = "none";
             }
 
+            let resources = new Resources();
+            resources.set_sans_font_data(new Uint8Array (await font_data_promise));
+
             let time = performance.now();
-            let game = new Tension(canvas, time, network);
+            let game = new Tension(canvas, time, network, resources);
 
             canvas.addEventListener('keyup', (event) => {
                 let key_code = keyToCode[event.key];
@@ -109,17 +115,17 @@
                 game.step(performance.now());
             }
             requestAnimationFrame(loop);
+
+            const room_state = await room_state_promise;
+            game.handle_room_state(room_state);
         }
 
         async function create(event) {
             event.preventDefault();
 
             let name = document.getElementById("username-create").value;
-            let room_state = await network.create_room(name).await();
-            network.use_initial_state(room_state);
-            network.debug_state();
 
-            start();
+            start(network.create_room(userID, name).await());
 
             return false;
         }
@@ -130,11 +136,8 @@
 
             let roomCode = document.getElementById("roomcode").value;
             let name = document.getElementById("username-join").value;
-            let room_state = await network.join_room(name, roomCode).await();
-            network.use_initial_state(room_state);
-            network.debug_state();
 
-            start();
+            start(network.join_room(userID, name, roomCode).await());
 
             return false;
         }

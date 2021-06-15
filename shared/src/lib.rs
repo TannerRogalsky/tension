@@ -106,9 +106,7 @@ pub enum MessageType<T> {
     Custom(T),
 }
 
-#[derive(
-    Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Default, Serialize, Deserialize,
-)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RoomID([u8; 4]);
 
 impl RoomID {
@@ -217,6 +215,12 @@ pub type PlayerName = String;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PlayerID(u64);
+
+impl PlayerID {
+    pub fn gen<R: rand::Rng>(rng: &mut R) -> Self {
+        Self(rng.gen())
+    }
+}
 
 impl std::str::FromStr for PlayerID {
     type Err = std::num::ParseIntError;
