@@ -88,6 +88,10 @@ impl Sim {
             &mut self.physics.joints,
         )
     }
+
+    pub fn live_body_count(&self) -> usize {
+        self.physics.bodies.len()
+    }
 }
 
 mod physics {
@@ -102,7 +106,7 @@ mod physics {
     };
     use rapier2d::na::{Point2, Vector2};
     use rapier2d::pipeline::{ChannelEventCollector, PhysicsPipeline, QueryPipeline};
-    use solstice_2d::Stroke;
+    use solstice_2d::{Draw, Stroke};
 
     pub struct PhysicsContext {
         pipeline: PhysicsPipeline,
@@ -142,19 +146,22 @@ mod physics {
                 let parent_handle = bodies.insert(body);
                 colliders.insert(collider, parent_handle, &mut bodies);
 
-                let num = 9;
+                let num = 8;
                 let rad = 0.05;
 
                 let shift = rad * 2.0;
                 let center_x = shift * ((num - 1) as f32) / 2.0;
-                let center_y = shift / 2.0 + ground_thickness + rad * 1.5 + camera_offset;
+                let center_y = shift / 2.0 + ground_thickness + rad * 0.5 + camera_offset;
 
-                for i in 0usize..num {
-                    for j in i..num {
-                        let fj = j as f32;
-                        let fi = i as f32;
-                        let x = (fi * shift / 2.0) + (fj - fi) * shift - center_x;
-                        let y = fi * shift + center_y;
+                for y in 0usize..num {
+                    let x_count = if y % 2 == 0 { num } else { num - 1 };
+                    let yf = y as f32;
+                    for x in 0..x_count {
+                        let xf = x as f32;
+
+                        let x_offset = (num - x_count) as f32 / 2.;
+                        let x = (xf * shift) - center_x + x_offset * shift;
+                        let y = yf * shift + center_y;
 
                         let rigid_body = RigidBodyBuilder::new_dynamic().translation(x, y).build();
                         let handle = bodies.insert(rigid_body);
@@ -162,6 +169,21 @@ mod physics {
                         colliders.insert(collider, handle, &mut bodies);
                     }
                 }
+
+                // pyramid
+                // for i in 0usize..num {
+                //     for j in i..num {
+                //         let fj = j as f32;
+                //         let fi = i as f32;
+                //         let x = (fi * shift / 2.0) + (fj - fi) * shift - center_x;
+                //         let y = fi * shift + center_y;
+                //
+                //         let rigid_body = RigidBodyBuilder::new_dynamic().translation(x, y).build();
+                //         let handle = bodies.insert(rigid_body);
+                //         let collider = ColliderBuilder::cuboid(rad, rad).build();
+                //         colliders.insert(collider, handle, &mut bodies);
+                //     }
+                // }
 
                 let kill_sensor = bodies.insert(
                     RigidBodyBuilder::new_static()
@@ -246,8 +268,10 @@ mod physics {
         }
 
         pub fn debug_render(&self, g: &mut solstice_2d::GraphicsLock) {
-            const AWAKE_BODY_COLOR: [f32; 4] = [0., 1., 0., 1.];
-            const ASLEEP_BODY_COLOR: [f32; 4] = [0., 0., 1., 1.];
+            const AWAKE_BODY_COLOR: [f32; 4] = [0., 0.8, 0., 1.];
+            const ASLEEP_BODY_COLOR: [f32; 4] = [0., 0., 0.8, 1.];
+            const AWAKE_BODY_OUTLINE: [f32; 4] = [0., 1., 0., 1.];
+            const ASLEEP_BODY_OUTLINE: [f32; 4] = [0., 0., 1., 1.];
 
             for (_body_handle, body) in self.bodies.iter() {
                 let position = body.position();
@@ -275,12 +299,13 @@ mod physics {
                                             ..Default::default()
                                         }
                                     });
-                                let color = if body.is_sleeping() {
-                                    ASLEEP_BODY_COLOR
+                                let (color, outline) = if body.is_sleeping() {
+                                    (ASLEEP_BODY_COLOR, ASLEEP_BODY_OUTLINE)
                                 } else {
-                                    AWAKE_BODY_COLOR
+                                    (AWAKE_BODY_COLOR, AWAKE_BODY_OUTLINE)
                                 };
-                                g.stroke_with_color(quad, color);
+                                g.draw_with_color(quad, color);
+                                g.stroke_with_color(quad, outline);
                             }
                             TypedShape::Capsule(_) => {}
                             TypedShape::Segment(_) => {}
