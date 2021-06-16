@@ -16,6 +16,15 @@ pub enum MouseEvent {
     Moved(f32, f32),
 }
 
+impl MouseEvent {
+    pub fn is_left_click(&self) -> bool {
+        match self {
+            Self::Button(ElementState::Pressed, MouseButton::Left) => true,
+            _ => false,
+        }
+    }
+}
+
 pub struct Game {
     ctx: solstice_2d::solstice::Context,
     gfx: solstice_2d::Graphics,

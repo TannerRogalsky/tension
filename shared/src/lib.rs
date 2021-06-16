@@ -2,109 +2,9 @@ pub mod viewer;
 
 use serde::{Deserialize, Serialize};
 
-type Lookup<K, V> = std::collections::HashMap<K, V>;
-
 pub const ENDPOINT_WS: &'static str = "socket";
 pub const ENDPOINT_CREATE_ROOM: &'static str = "create";
 pub const ENDPOINT_JOIN_ROOM: &'static str = "join";
-
-pub trait Receiver<T> {
-    fn try_recv(&self) -> Result<Message<T>, ()>;
-}
-
-pub trait Sender<T> {
-    fn send(&self, msg: Message<T>) -> Result<(), ()>;
-}
-
-pub struct Client<T, S, R> {
-    recv: R,
-    send: S,
-    rooms: Lookup<RoomID, Room<T>>,
-}
-
-impl<T, S, R> Client<T, S, R>
-where
-    R: Receiver<T>,
-    S: Sender<T>,
-{
-    pub fn new(send: S, recv: R) -> Self {
-        Self {
-            send,
-            recv,
-            rooms: Default::default(),
-        }
-    }
-
-    pub fn get_room(&self, id: &RoomID) -> Option<RoomRead<'_, T, S>> {
-        self.rooms.get(id).map(|room| RoomRead {
-            room,
-            sender: &self.send,
-        })
-    }
-
-    pub fn update(&mut self) {
-        while let Ok(msg) = self.recv.try_recv() {
-            if let Some(room) = self.rooms.get_mut(&msg.target) {
-                match msg.ty {
-                    MessageType::PlayerJoined(player) => {
-                        room.state.players.push(player);
-                    }
-                    MessageType::PlayerLeft(player) => {
-                        let players = &mut room.state.players;
-                        if let Some(position) = players.iter().position(|p| p.id == player) {
-                            players.remove(position);
-                        }
-                    }
-                    MessageType::Custom(v) => room.custom_messages.push_back(v),
-                }
-            } else if let MessageType::PlayerJoined(player) = msg.ty {
-                self.rooms.insert(
-                    msg.target,
-                    Room {
-                        state: RoomState {
-                            id: msg.target,
-                            players: vec![player],
-                        },
-                        custom_messages: Default::default(),
-                    },
-                );
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Message<T> {
-    target: RoomID,
-    ty: MessageType<T>,
-}
-
-impl<T> Message<T> {
-    pub fn joined(target: RoomID, player: Player) -> Self {
-        Self {
-            target,
-            ty: MessageType::PlayerJoined(player),
-        }
-    }
-
-    pub fn left(target: RoomID, player: PlayerID) -> Self {
-        Self {
-            target,
-            ty: MessageType::PlayerLeft(player),
-        }
-    }
-
-    pub fn target(&self) -> RoomID {
-        self.target
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum MessageType<T> {
-    PlayerJoined(Player),
-    PlayerLeft(PlayerID),
-    Custom(T),
-}
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RoomID([u8; 4]);
@@ -167,44 +67,6 @@ pub struct RoomState {
     pub players: Vec<Player>,
 }
 
-#[derive(Debug)]
-pub struct Room<T> {
-    pub state: RoomState,
-    pub custom_messages: std::collections::VecDeque<T>,
-}
-
-impl<T> Room<T> {
-    pub fn players(&self) -> &[Player] {
-        &self.state.players
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct RoomRead<'a, T, S> {
-    room: &'a Room<T>,
-    sender: &'a S,
-}
-
-impl<T, S> std::ops::Deref for RoomRead<'_, T, S> {
-    type Target = Room<T>;
-
-    fn deref(&self) -> &Self::Target {
-        self.room
-    }
-}
-
-impl<T, S> RoomRead<'_, T, S>
-where
-    S: Sender<T>,
-{
-    pub fn send(&self, msg: T) -> Result<(), ()> {
-        self.sender.send(Message {
-            target: self.room.state.id,
-            ty: MessageType::Custom(msg),
-        })
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct RoomJoinInfo {
     pub room_id: RoomID,
@@ -240,6 +102,7 @@ pub struct Player {
 pub enum CustomMessage {
     StartGame,
     Click(f32, f32),
+    AssignClick(PlayerID, u32),
 }
 
 #[cfg(test)]

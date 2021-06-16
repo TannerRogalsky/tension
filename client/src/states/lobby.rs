@@ -30,7 +30,9 @@ impl Lobby {
                             let main = super::main::Main::new(self.local_user, self.room);
                             return super::State::Main(main);
                         }
-                        CustomMessage::Click(_, _) => {}
+                        _ => {
+                            log::error!("Discarded a command!")
+                        }
                     },
                 }
             } else {
@@ -45,14 +47,25 @@ impl Lobby {
     }
 
     pub fn handle_mouse_event(&self, event: crate::MouseEvent, ctx: StateContext) {
-        match event {
-            crate::MouseEvent::Button(state, button) => match (state, button) {
-                (crate::ElementState::Pressed, crate::MouseButton::Left) => ctx.ws.send(
-                    shared::viewer::Command::Custom(self.room.id, shared::CustomMessage::StartGame),
-                ),
+        let is_dm = self
+            .room
+            .users
+            .first()
+            .map(|user| user.id == self.local_user.id)
+            .unwrap_or(false);
+        if is_dm {
+            match event {
+                crate::MouseEvent::Button(state, button) => match (state, button) {
+                    (crate::ElementState::Pressed, crate::MouseButton::Left) => {
+                        ctx.ws.send(shared::viewer::Command::Custom(
+                            self.room.id,
+                            shared::CustomMessage::StartGame,
+                        ))
+                    }
+                    _ => {}
+                },
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
 

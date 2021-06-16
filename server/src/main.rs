@@ -314,41 +314,6 @@ async fn debug_state(state: State) -> Result<impl warp::Reply, std::convert::Inf
     Ok(warp::reply::json(&state))
 }
 
-mod net {
-    use crossbeam_channel::Receiver;
-    use shared::Message;
-    use tokio::sync::mpsc::UnboundedSender as Sender;
-
-    #[derive(Debug)]
-    pub struct Recv<T>(Receiver<Message<T>>);
-    #[derive(Debug)]
-    pub struct Send<T>(Sender<Message<T>>);
-
-    impl<T> shared::Receiver<T> for Recv<T> {
-        fn try_recv(&self) -> Result<Message<T>, ()> {
-            self.0.try_recv().map_err(|_| ())
-        }
-    }
-
-    impl<T> From<Receiver<Message<T>>> for Recv<T> {
-        fn from(inner: Receiver<Message<T>>) -> Self {
-            Self(inner)
-        }
-    }
-
-    impl<T> shared::Sender<T> for Send<T> {
-        fn send(&self, msg: Message<T>) -> Result<(), ()> {
-            self.0.send(msg).map_err(|_| ())
-        }
-    }
-
-    impl<T> From<Sender<Message<T>>> for Send<T> {
-        fn from(inner: Sender<Message<T>>) -> Self {
-            Self(inner)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
