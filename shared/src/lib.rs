@@ -239,6 +239,7 @@ pub struct Player {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CustomMessage {
     StartGame,
+    Click(f32, f32),
 }
 
 #[cfg(test)]

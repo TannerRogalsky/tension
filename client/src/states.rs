@@ -10,7 +10,6 @@ pub enum State {
 
 impl Default for State {
     fn default() -> Self {
-        // Self::Main(main::Main::new())
         Self::NoRoom(Default::default())
     }
 }
@@ -27,19 +26,19 @@ impl State {
                 self
             }
             Self::Main(ref mut inner) => {
-                inner.update(dt);
-                self
-            }
-            Self::Lobby(ref mut inner) => {
                 inner.update(dt, ctx);
                 self
             }
+            Self::Lobby(inner) => inner.update(dt, ctx),
         }
     }
 
     pub fn handle_mouse_event(mut self, event: crate::MouseEvent, ctx: StateContext) -> State {
         match self {
-            Self::Lobby(inner) => inner.handle_mouse_event(event),
+            Self::Lobby(ref inner) => {
+                inner.handle_mouse_event(event, ctx);
+                self
+            }
             Self::Main(ref mut inner) => {
                 inner.handle_mouse_event(event, ctx);
                 self

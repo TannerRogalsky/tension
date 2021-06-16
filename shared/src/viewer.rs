@@ -165,16 +165,18 @@ pub mod state {
             }
         }
 
-        pub fn handle_command(&mut self, cmd: Command<T>) {
+        pub fn handle_command(&mut self, cmd: Command<T>, from: &UserID) {
             match cmd {
                 Command::Custom(room_id, payload) => {
                     if let Some(room) = self.rooms.get(&room_id) {
-                        let result = room.channel.send(StateChange {
-                            target: room.state.id,
-                            ty: ChangeType::Custom(payload),
-                        });
-                        if let Err(err) = result {
-                            log::error!("{:?}", err);
+                        if room.state.users.contains(&from) {
+                            let result = room.channel.send(StateChange {
+                                target: room.state.id,
+                                ty: ChangeType::Custom(payload),
+                            });
+                            if let Err(err) = result {
+                                log::error!("{:?}", err);
+                            }
                         }
                     }
                 }

@@ -1,30 +1,19 @@
 use super::StateContext;
 use shared::viewer::*;
-
-#[derive(Debug)]
-struct Room {
-    id: shared::RoomID,
-    users: Vec<User>,
-}
+use shared::CustomMessage;
 
 #[derive(Debug)]
 pub struct Lobby {
     local_user: shared::viewer::User,
-    room: Room,
+    room: InitialRoomState,
 }
 
 impl Lobby {
     pub fn new(local_user: User, room: InitialRoomState) -> Self {
-        Self {
-            local_user,
-            room: Room {
-                id: room.id,
-                users: room.users,
-            },
-        }
+        Self { local_user, room }
     }
 
-    pub fn update(&mut self, dt: std::time::Duration, ctx: StateContext) {
+    pub fn update(mut self, _dt: std::time::Duration, ctx: StateContext) -> super::State {
         for msg in ctx.ws.try_recv_iter() {
             if msg.target == self.room.id {
                 match msg.ty {
@@ -36,7 +25,13 @@ impl Lobby {
                             self.room.users.remove(index);
                         }
                     }
-                    ChangeType::Custom(_) => {}
+                    ChangeType::Custom(cmd) => match cmd {
+                        CustomMessage::StartGame => {
+                            let main = super::main::Main::new(self.local_user, self.room);
+                            return super::State::Main(main);
+                        }
+                        CustomMessage::Click(_, _) => {}
+                    },
                 }
             } else {
                 log::error!(
@@ -46,17 +41,18 @@ impl Lobby {
                 );
             }
         }
+        super::State::Lobby(self)
     }
 
-    pub fn handle_mouse_event(self, event: crate::MouseEvent) -> super::State {
+    pub fn handle_mouse_event(&self, event: crate::MouseEvent, ctx: StateContext) {
         match event {
             crate::MouseEvent::Button(state, button) => match (state, button) {
-                (crate::ElementState::Pressed, crate::MouseButton::Left) => {
-                    super::State::Main(super::main::Main::new())
-                }
-                _ => super::State::Lobby(self),
+                (crate::ElementState::Pressed, crate::MouseButton::Left) => ctx.ws.send(
+                    shared::viewer::Command::Custom(self.room.id, shared::CustomMessage::StartGame),
+                ),
+                _ => {}
             },
-            _ => super::State::Lobby(self),
+            _ => {}
         }
     }
 
@@ -78,7 +74,7 @@ impl Lobby {
             bounds,
         );
         for (index, user) in self.room.users.iter().enumerate() {
-            let text = format!("{}. {:?}", index, user.name);
+            let text = format!("{}. {}", index + 1, user.name);
             let scale = 16.;
             ctx.g.print(
                 text,

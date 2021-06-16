@@ -190,7 +190,7 @@ async fn on_ws_connect(
 
                 match parse_attempt {
                     Ok(cmd) => {
-                        state.write().await.handle_command(cmd);
+                        state.write().await.handle_command(cmd, &id);
                     }
                     Err(err) => {
                         log::error!("{:?}", err);

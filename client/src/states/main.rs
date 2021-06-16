@@ -1,17 +1,65 @@
 use super::StateContext;
+use shared::viewer::{ChangeType, InitialRoomState, User};
+use shared::CustomMessage;
 use solstice_2d::Draw;
 
 pub struct Main {
     physics: physics::PhysicsContext,
+    local_user: User,
+    room: InitialRoomState,
+    current_user: usize,
+    local_click_in_flight: bool,
 }
 
 impl Main {
-    pub fn new() -> Self {
+    pub fn new(local_user: User, room: InitialRoomState) -> Self {
         let physics = physics::PhysicsContext::new(0., -9.81 * 0.1);
-        Self { physics }
+        Self {
+            physics,
+            local_user,
+            room,
+            current_user: 0,
+            local_click_in_flight: false,
+        }
     }
 
-    pub fn update(&mut self, dt: std::time::Duration) {
+    pub fn update(&mut self, dt: std::time::Duration, ctx: StateContext) {
+        for msg in ctx.ws.try_recv_iter() {
+            match msg.ty {
+                ChangeType::Custom(cmd) => match cmd {
+                    CustomMessage::Click(x, y) => {
+                        log::debug!("CLICK ({}, {})", x, y);
+                        self.local_click_in_flight = false;
+                        let point = rapier2d::na::Point2::new(x, y);
+                        let clicked = self.physics.colliders.iter().find_map(|(_h, c)| {
+                            let c: &rapier2d::geometry::Collider = c;
+                            let shape = c.shape();
+                            let transform = c.position();
+                            let clicked = rapier2d::parry::query::point::PointQuery::contains_point(
+                                shape, transform, &point,
+                            );
+                            if clicked {
+                                Some(c.parent())
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(handle) = clicked {
+                            self.physics.bodies.remove(
+                                handle,
+                                &mut self.physics.colliders,
+                                &mut self.physics.joints,
+                            );
+                        }
+
+                        self.current_user = (self.current_user + 1) % self.room.users.len();
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
         self.physics.step(dt);
     }
 
@@ -19,35 +67,33 @@ impl Main {
         if let crate::MouseEvent::Button(crate::ElementState::Pressed, crate::MouseButton::Left) =
             event
         {
-            let all_sleeping = self
-                .physics
-                .bodies
-                .iter_active_dynamic()
-                .all(|(_h, b)| b.is_sleeping());
+            let is_local = self.local_is_current();
+            let can_click = !self.local_click_in_flight
+                && is_local
+                && self
+                    .physics
+                    .bodies
+                    .iter_active_dynamic()
+                    .all(|(_h, b)| b.is_sleeping());
 
-            if all_sleeping {
+            if can_click {
                 let (mx, my) = ctx.input_state.mouse_position;
                 let [x, y] = Self::screen_to_world(&ctx, mx, my);
                 let point = rapier2d::na::Point2::new(x, y);
-                let clicked = self.physics.colliders.iter().find_map(|(_h, c)| {
+                let clicked = self.physics.colliders.iter().any(|(_h, c)| {
                     let c: &rapier2d::geometry::Collider = c;
                     let shape = c.shape();
                     let transform = c.position();
-                    let clicked = rapier2d::parry::query::point::PointQuery::contains_point(
+                    rapier2d::parry::query::point::PointQuery::contains_point(
                         shape, transform, &point,
-                    );
-                    if clicked {
-                        Some(c.parent())
-                    } else {
-                        None
-                    }
+                    )
                 });
-                if let Some(handle) = clicked {
-                    self.physics.bodies.remove(
-                        handle,
-                        &mut self.physics.colliders,
-                        &mut self.physics.joints,
-                    );
+                if clicked {
+                    self.local_click_in_flight = true;
+                    ctx.ws.send(shared::viewer::Command::Custom(
+                        self.room.id,
+                        shared::CustomMessage::Click(x, y),
+                    ));
                 }
             }
         }
@@ -72,6 +118,49 @@ impl Main {
         );
 
         self.physics.debug_render(&mut ctx.g);
+
+        {
+            ctx.g.set_projection_mode(None);
+            let vw = ctx.g.gfx().viewport();
+            let bounds = solstice_2d::Rectangle {
+                x: vw.x() as f32,
+                y: vw.y() as f32,
+                width: vw.width() as f32,
+                height: vw.height() as f32,
+            };
+            for (index, user) in self.room.users.iter().enumerate() {
+                let color = if index == self.current_user {
+                    [1., 1., 0., 1.]
+                } else {
+                    [1., 1., 1., 1.]
+                };
+                ctx.g.set_color(color);
+
+                let text = if user.id == self.local_user.id {
+                    format!("{}. *{}*", index + 1, user.name)
+                } else {
+                    format!("{}. {}", index + 1, user.name)
+                };
+                let scale = 16.;
+                ctx.g.print(
+                    text,
+                    ctx.resources.sans_font,
+                    scale,
+                    solstice_2d::Rectangle {
+                        y: (scale * 1.1 * index as f32 + 8.).round(),
+                        ..bounds
+                    },
+                )
+            }
+        }
+    }
+
+    fn local_is_current(&self) -> bool {
+        self.room
+            .users
+            .get(self.current_user)
+            .map(|user| user.id == self.local_user.id)
+            .unwrap_or(false)
     }
 
     fn projection(ctx: &StateContext) -> solstice_2d::Projection {
