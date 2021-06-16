@@ -252,34 +252,4 @@ mod tests {
         let room = RoomID::new(&mut rng);
         assert_eq!(room.to_string(), String::from("HGFE"));
     }
-
-    // #[test]
-    // fn cross_beam_test() {
-    //     impl<T> Receiver<T> for crossbeam_channel::Receiver<Message<T>> {
-    //         fn try_recv(&self) -> Result<Message<T>, ()> {
-    //             self.try_recv().map_err(|_| ())
-    //         }
-    //     }
-    //
-    //     impl<T> Sender<T> for crossbeam_channel::Sender<Message<T>> {
-    //         fn send(&self, msg: Message<T>) -> Result<(), ()> {
-    //             self.send(msg).map_err(|_| ())
-    //         }
-    //     }
-    //
-    //     let (sx, rx) = crossbeam_channel::unbounded();
-    //     let mut client = Client::new(sx, rx);
-    //
-    //     let room1 = client.create_room();
-    //     let room1_handle = room1.id;
-    //     room1.send(1).expect("failed send");
-    //
-    //     assert_eq!(
-    //         client.recv.try_recv(),
-    //         Ok(Message {
-    //             target: room1_handle,
-    //             ty: MessageType::Custom(1)
-    //         })
-    //     );
-    // }
 }

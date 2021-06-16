@@ -39,7 +39,7 @@ fn main() -> eyre::Result<()> {
 
     let mut game = Game::new(ctx, now(), width as _, height as _, ws, resources)?;
     game.handle_new_room_state(
-        shared::viewer::RoomState {
+        shared::viewer::InitialRoomState {
             id: shared::RoomID::new(&mut rng),
             users: vec![],
         },

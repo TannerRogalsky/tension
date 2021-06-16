@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn validate_api() {
         let connection_fut = WebSocket::connect("/test");
-        let fut = connection_fut.map_ok(|mut connection| {
+        let fut = connection_fut.map_ok(|connection| {
             assert!(connection.send(Message::Text("test".to_owned())).is_err());
             assert!(connection.poll().is_none());
             connection
