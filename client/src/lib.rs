@@ -1,4 +1,5 @@
 pub mod resources;
+pub mod sim;
 mod states;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
@@ -117,18 +118,18 @@ impl Game {
         self.ctx.set_viewport(0, 0, win_width as _, win_height as _);
         self.gfx.set_viewport(vw);
 
-        let width = 16. / 9.;
-        let height = 1.;
-
-        let scale_x = win_width / width;
-        let scale_y = win_height / height;
-        let scale = scale_x.min(scale_y);
-
-        let x = (win_width - width * scale) / 2.;
-        let y = (win_height - height * scale) / 2.;
-
-        let scissor = Viewport::new(x as _, y as _, (width * scale) as _, (height * scale) as _);
-        self.gfx.set_scissor(Some(scissor));
+        // let width = 16. / 9.;
+        // let height = 1.;
+        //
+        // let scale_x = win_width / width;
+        // let scale_y = win_height / height;
+        // let scale = scale_x.min(scale_y);
+        //
+        // let x = (win_width - width * scale) / 2.;
+        // let y = (win_height - height * scale) / 2.;
+        //
+        // let scissor = Viewport::new(x as _, y as _, (width * scale) as _, (height * scale) as _);
+        // self.gfx.set_scissor(Some(scissor));
     }
 }
 

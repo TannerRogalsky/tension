@@ -11,40 +11,18 @@ fn main() -> eyre::Result<()> {
         .with_title("TENSION")
         .with_inner_size(glutin::dpi::PhysicalSize::new(width, height));
     let (glow_ctx, window) = window::init_ctx(wb, &event_loop);
-    let ctx = solstice_2d::solstice::Context::new(glow_ctx);
-
-    let mut rng: rand::rngs::SmallRng =
-        rand::SeedableRng::seed_from_u64(std::time::UNIX_EPOCH.elapsed().unwrap().as_secs());
-    let local_user = shared::viewer::User {
-        id: shared::PlayerID::gen(&mut rng),
-        name: "Native Tester".to_string(),
-    };
-    let ws = net::Client::new("http://localhost:8000/".to_string());
-    let ws = futures::executor::block_on(ws)?;
-
-    let resources_folder = std::path::PathBuf::new()
-        .join(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("docs");
-    let fonts_folder = resources_folder.join("fonts");
-    let resources = resources::Resources {
-        sans_font_data: std::fs::read(fonts_folder.join("Inconsolata-Regular.ttf"))?,
-    };
+    let mut ctx = solstice_2d::solstice::Context::new(glow_ctx);
+    let mut gfx = solstice_2d::Graphics::new(&mut ctx, width as f32, height as f32)?;
 
     let now = {
         let epoch = std::time::Instant::now();
         move || epoch.elapsed()
     };
 
-    let mut game = Game::new(ctx, now(), width as _, height as _, ws, resources)?;
-    game.handle_new_room_state(
-        shared::viewer::InitialRoomState {
-            id: shared::RoomID::new(&mut rng),
-            users: vec![],
-        },
-        local_user,
-    );
+    let mut game = sim::Sim::new();
+
+    let mut prev_t = now();
+    let (mut mx, mut my) = (0., 0.);
 
     event_loop.run(move |event, _, cf| {
         use glutin::{event::*, event_loop::ControlFlow};
@@ -52,7 +30,11 @@ fn main() -> eyre::Result<()> {
             Event::NewEvents(_) => {}
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(size) => {
-                    game.handle_resize(size.width as _, size.height as _);
+                    use solstice_2d::solstice::viewport::Viewport;
+                    let (win_width, win_height) = (size.width, size.height);
+                    let vw = Viewport::new(0, 0, win_width as _, win_height as _);
+                    ctx.set_viewport(0, 0, win_width as _, win_height as _);
+                    gfx.set_viewport(vw);
                 }
                 WindowEvent::CloseRequested => {
                     *cf = ControlFlow::Exit;
@@ -67,10 +49,16 @@ fn main() -> eyre::Result<()> {
                 //     ..
                 // } => game.handle_key_event(state, key_code),
                 WindowEvent::MouseInput { state, button, .. } => {
-                    game.handle_mouse_event(MouseEvent::Button(state, button));
+                    if state == ElementState::Pressed && button == MouseButton::Left {
+                        let [x, y] = crate::sim::Sim::screen_to_world(gfx.viewport(), mx, my);
+                        if let Some(handle) = game.body_at_point(x, y) {
+                            game.try_remove_body(handle);
+                        }
+                    }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
-                    game.handle_mouse_event(MouseEvent::Moved(position.x as _, position.y as _));
+                    mx = position.x as f32;
+                    my = position.y as f32;
                 }
                 _ => {}
             },
@@ -82,7 +70,11 @@ fn main() -> eyre::Result<()> {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
-                game.update(now());
+                let t = now();
+                let dt = t - prev_t;
+                prev_t = t;
+                game.step(dt);
+                game.render(&mut gfx.lock(&mut ctx));
                 window.swap_buffers().expect("omfg");
             }
             Event::RedrawEventsCleared => {}
