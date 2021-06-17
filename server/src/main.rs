@@ -140,6 +140,8 @@ async fn main() -> eyre::Result<()> {
         .and(client_state.clone())
         .and_then(debug_state);
 
+    let health_check = warp::path("health").map(|| "OK");
+
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(std::path::PathBuf::from)
@@ -149,9 +151,10 @@ async fn main() -> eyre::Result<()> {
         .or(create_room)
         .or(join_room)
         .or(debug_state)
+        .or(health_check)
         .or(warp::fs::dir(root.join("docs")));
 
-    Ok(warp::serve(routes).run(([127, 0, 0, 1], 8000)).await)
+    Ok(warp::serve(routes).run(([0, 0, 0, 0], 8000)).await)
 }
 
 async fn on_ws_connect(
