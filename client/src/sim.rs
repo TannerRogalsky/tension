@@ -89,8 +89,8 @@ impl Sim {
         )
     }
 
-    pub fn live_body_count(&self) -> usize {
-        self.physics.bodies.len()
+    pub fn kill_triggered(&self) -> bool {
+        self.physics.kill_triggered()
     }
 }
 
@@ -126,6 +126,7 @@ mod physics {
         kill_sensor: ColliderHandle,
 
         update_timer: Timer,
+        kill_triggered: bool,
     }
 
     impl PhysicsContext {
@@ -220,6 +221,7 @@ mod physics {
                 intersection_events: intersection_recv,
                 kill_sensor,
                 update_timer: Timer::new(std::time::Duration::from_secs_f32(1. / 60.)),
+                kill_triggered: false,
             }
         }
 
@@ -242,6 +244,7 @@ mod physics {
                 while let Ok(intersection_event) = self.intersection_events.try_recv() {
                     if intersection_event.collider1 == self.kill_sensor {
                         if let Some(other) = self.colliders.get(intersection_event.collider2) {
+                            self.kill_triggered = true;
                             self.bodies.remove(
                                 other.parent(),
                                 &mut self.colliders,
@@ -252,6 +255,7 @@ mod physics {
 
                     if intersection_event.collider2 == self.kill_sensor {
                         if let Some(other) = self.colliders.get(intersection_event.collider1) {
+                            self.kill_triggered = true;
                             self.bodies.remove(
                                 other.parent(),
                                 &mut self.colliders,
@@ -265,6 +269,10 @@ mod physics {
                     // println!("{:?}", contact_event);
                 }
             }
+        }
+
+        pub fn kill_triggered(&self) -> bool {
+            self.kill_triggered
         }
 
         pub fn debug_render(&self, g: &mut solstice_2d::GraphicsLock) {

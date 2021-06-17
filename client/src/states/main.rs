@@ -1,7 +1,7 @@
 use super::StateContext;
 use shared::viewer::{ChangeType, InitialRoomState, User};
 use shared::CustomMessage;
-use solstice_2d::Stroke;
+use solstice_2d::{Draw, Stroke};
 
 const TEXT_SCALE: f32 = 16.;
 
@@ -12,6 +12,7 @@ pub struct Main {
     current_user: usize,
     local_click_in_flight: bool,
     click_queue: std::collections::VecDeque<(shared::PlayerID, u32)>,
+    previous_click: Option<shared::PlayerID>,
 }
 
 impl Main {
@@ -24,10 +25,11 @@ impl Main {
             current_user: 0,
             local_click_in_flight: false,
             click_queue: Default::default(),
+            previous_click: None,
         }
     }
 
-    pub fn update(&mut self, dt: std::time::Duration, ctx: StateContext) {
+    pub fn update(mut self, dt: std::time::Duration, ctx: StateContext) -> super::State {
         for msg in ctx.ws.try_recv_iter() {
             match msg.ty {
                 ChangeType::Custom(cmd) => match cmd {
@@ -38,7 +40,9 @@ impl Main {
                             self.sim.try_remove_body(handle);
                         }
 
-                        if let Some(count) = self.click_queue.front_mut().map(|(_, count)| {
+                        let previous_click = &mut self.previous_click;
+                        if let Some(count) = self.click_queue.front_mut().map(|(user, count)| {
+                            *previous_click = Some(*user);
                             *count -= 1;
                             *count
                         }) {
@@ -51,7 +55,7 @@ impl Main {
                         self.click_queue.push_back((player_id, count));
                     }
                     CustomMessage::StartGame => {
-                        log::error!("unimplemented");
+                        return super::State::Main(Self::new(self.local_user, self.room));
                     }
                 },
                 _ => {}
@@ -59,21 +63,30 @@ impl Main {
         }
 
         self.sim.step(dt);
+
+        super::State::Main(self)
     }
 
     pub fn handle_mouse_event(&mut self, event: crate::MouseEvent, ctx: StateContext) {
         if self.is_dm(&self.local_user) {
             if event.is_left_click() {
-                let (mx, my) = ctx.input_state.mouse_position;
-                let clicked = self.room.users[1..].iter().find(|user| {
-                    let bbox = self.username_bbox(user).unwrap();
-                    collides([mx, my], &bbox)
-                });
-                if let Some(user) = clicked {
+                if self.sim.kill_triggered() {
                     ctx.ws.send(shared::viewer::Command::Custom(
                         self.room.id,
-                        shared::CustomMessage::AssignClick(user.id, 1),
+                        shared::CustomMessage::StartGame,
                     ));
+                } else {
+                    let (mx, my) = ctx.input_state.mouse_position;
+                    let clicked = self.room.users[1..].iter().find(|user| {
+                        let bbox = self.username_bbox(user).unwrap();
+                        collides([mx, my], &bbox)
+                    });
+                    if let Some(user) = clicked {
+                        ctx.ws.send(shared::viewer::Command::Custom(
+                            self.room.id,
+                            shared::CustomMessage::AssignClick(user.id, 1),
+                        ));
+                    }
                 }
             }
         } else {
@@ -101,6 +114,34 @@ impl Main {
         ctx.g.clear([0.2, 0.2, 0.2, 1.]);
         self.sim.render(&mut ctx.g);
 
+        let font_id = ctx.resources.sans_font;
+        if self.sim.kill_triggered() {
+            let vw = ctx.g.gfx().viewport();
+            let screen = solstice_2d::Rectangle {
+                x: 0.,
+                y: 0.,
+                width: vw.width() as _,
+                height: vw.height() as _,
+            };
+            ctx.g.draw_with_color(screen, [0., 0., 0., 0.4]);
+            let clicker = self
+                .previous_click
+                .and_then(|id| self.room.users.iter().find(|user| user.id == id));
+            if let Some(user) = clicker {
+                let text = format!("{} knocked over the tower!", user.name);
+                ctx.g.print(
+                    text,
+                    font_id,
+                    TEXT_SCALE * 3.,
+                    solstice_2d::Rectangle {
+                        x: 38.0,
+                        y: screen.height / 2. - TEXT_SCALE * 3. / 2.,
+                        ..screen
+                    },
+                );
+            }
+        }
+
         {
             let vw = ctx.g.gfx().viewport();
             let bounds = solstice_2d::Rectangle {
@@ -109,7 +150,6 @@ impl Main {
                 width: vw.width() as f32,
                 height: vw.height() as f32,
             };
-            let font_id = ctx.resources.sans_font;
             if let Some(dm) = self.room.users.first() {
                 let text = format!("DM: {}", dm.name);
                 ctx.g.print(

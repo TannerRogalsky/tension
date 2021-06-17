@@ -53,19 +53,11 @@ impl Lobby {
             .first()
             .map(|user| user.id == self.local_user.id)
             .unwrap_or(false);
-        if is_dm {
-            match event {
-                crate::MouseEvent::Button(state, button) => match (state, button) {
-                    (crate::ElementState::Pressed, crate::MouseButton::Left) => {
-                        ctx.ws.send(shared::viewer::Command::Custom(
-                            self.room.id,
-                            shared::CustomMessage::StartGame,
-                        ))
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
+        if is_dm && event.is_left_click() {
+            ctx.ws.send(shared::viewer::Command::Custom(
+                self.room.id,
+                shared::CustomMessage::StartGame,
+            ))
         }
     }
 
