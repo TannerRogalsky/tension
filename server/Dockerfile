@@ -4,7 +4,7 @@ RUN USER=root cargo new --bin rust-docker-web
 COPY ./shared ./shared
 WORKDIR ./rust-docker-web
 COPY ./server/Cargo.toml ./Cargo.toml
-RUN cargo build --release --verbose
+RUN cargo build --release
 RUN rm src/*.rs
 
 ADD ./server ./
