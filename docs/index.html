@@ -108,6 +108,31 @@
                 }
             });
 
+            canvas.addEventListener('touchstart', (event) => {
+                if (game) {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    game.handle_mouse_move(x, y);
+                    game.handle_mouse_down(true);
+                }
+            });
+            canvas.addEventListener('touchend', (event) => {
+                if (game) {
+                    game.handle_mouse_up(true);
+                }
+            });
+            // canvas.addEventListener('touchcancel', handleCancel);
+            // canvas.addEventListener('touchleave', handleEnd);
+            canvas.addEventListener('touchmove', (event) => {
+                if (game) {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    game.handle_mouse_move(x, y);
+                }
+            });
+
             canvas.style.display = "block";
 
             let loop = () => {
