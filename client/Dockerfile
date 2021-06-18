@@ -9,5 +9,5 @@ COPY ./client ./client
 WORKDIR ./client
 RUN wasm-pack build --target web --out-dir ../docs/tension
 
-WORKDIR .
+WORKDIR ..
 COPY ./docs ./docs
