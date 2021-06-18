@@ -75,10 +75,9 @@ async fn main() -> eyre::Result<()> {
 
     let api = ws.or(create_room).or(join_room);
     #[cfg(debug_assertions)]
-    let api = warp::path("api").and(api);
+    let api = warp::path("api").and(api).or(debug_state);
 
     let routes = api
-        .or(debug_state)
         .or(health_check)
         .or(warp::fs::dir(root.join("docs")));
 

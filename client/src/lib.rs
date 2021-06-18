@@ -185,7 +185,6 @@ pub mod net {
     impl Client {
         pub async fn new(base_url: String) -> eyre::Result<Self> {
             let base_url = reqwest::Url::parse(&base_url)?;
-            log::debug!("{}", base_url);
             let mut ws_url = base_url.clone();
             match base_url.scheme() {
                 "http" => {
@@ -202,7 +201,6 @@ pub mod net {
                 }
             }
             let ws_url = ws_url.join(shared::ENDPOINT_WS)?;
-            log::debug!("{}", ws_url);
             let ws = websocket::WebSocket::connect(ws_url.as_str()).await?;
             let (sx, rx) = ws.into_channels();
             Ok(Self { base_url, sx, rx })
@@ -284,108 +282,6 @@ pub mod net {
                 }))
         }
     }
-
-    // #[derive(Debug, Clone, Eq, PartialEq)]
-    // pub enum GameState {
-    //     Lobby,
-    //     Game,
-    // }
-    //
-    // #[derive(Debug)]
-    // pub struct Room {
-    //     pub net_state: shared::viewer::RoomState,
-    //     pub game_state: GameState,
-    // }
-    //
-    // #[derive(Debug)]
-    // pub struct Player {
-    //     pub inner: shared::viewer::User,
-    // }
-    //
-    // #[derive(Debug, Default)]
-    // pub struct State {
-    //     pub rooms: std::collections::HashMap<shared::RoomID, Room>,
-    //     pub users: std::collections::HashMap<shared::PlayerID, Player>,
-    // }
-    //
-    // impl State {
-    //     pub fn handle_msg(&mut self, msg: shared::viewer::StateChange<shared::CustomMessage>) {
-    //         if let Some(room) = self.rooms.get_mut(&msg.target) {
-    //             use shared::viewer::ChangeType;
-    //             match msg.ty {
-    //                 ChangeType::UserJoin(user) => {
-    //                     if room.game_state == GameState::Lobby {
-    //                         room.net_state.users.push(user.id);
-    //                         self.users.insert(user.id, Player { inner: user });
-    //                     } else {
-    //                         log::warn!("Tried to add user {:?} while not in lobby.", user);
-    //                     }
-    //                 }
-    //                 ChangeType::UserLeave(user_id) => {
-    //                     room.net_state.users.retain(|user| user != &user_id);
-    //                     self.users.remove(&user_id);
-    //                 }
-    //                 ChangeType::Custom(payload) => match payload {
-    //                     CustomMessage::StartGame => {
-    //                         room.game_state = GameState::Game;
-    //                     }
-    //                 },
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // #[cfg(test)]
-    // mod tests {
-    //     use super::*;
-    //     use shared::{viewer::*, *};
-    //     use std::str::FromStr;
-    //
-    //     #[test]
-    //     fn state_test() {
-    //         let room1 = RoomID::from_str("ABCD").unwrap();
-    //         let user1 = User {
-    //             id: PlayerID::from_str("0").unwrap(),
-    //             name: "Alice".to_string(),
-    //         };
-    //         let user2 = User {
-    //             id: PlayerID::from_str("1").unwrap(),
-    //             name: "Bob".to_string(),
-    //         };
-    //
-    //         let mut state = State::default();
-    //         state.rooms.insert(
-    //             room1,
-    //             super::Room {
-    //                 net_state: viewer::RoomState {
-    //                     id: room1,
-    //                     users: vec![],
-    //                 },
-    //                 game_state: GameState::Lobby,
-    //             },
-    //         );
-    //
-    //         state.handle_msg(StateChange {
-    //             target: room1,
-    //             ty: ChangeType::UserJoin(user1.clone()),
-    //         });
-    //         state.handle_msg(StateChange {
-    //             target: room1,
-    //             ty: ChangeType::UserJoin(user2.clone()),
-    //         });
-    //
-    //         state.handle_msg(StateChange {
-    //             target: room1,
-    //             ty: ChangeType::Custom(CustomMessage::StartGame),
-    //         });
-    //
-    //         let room = state.rooms.get(&room1).unwrap();
-    //         assert_eq!(room.game_state, GameState::Game);
-    //         assert_eq!(room.net_state.users.len(), 2);
-    //         assert!(room.net_state.users.contains(&user1.id));
-    //         assert!(room.net_state.users.contains(&user2.id));
-    //     }
-    // }
 }
 
 #[cfg(test)]
