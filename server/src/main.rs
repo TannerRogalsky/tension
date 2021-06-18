@@ -2,11 +2,7 @@ use futures::{SinkExt, StreamExt};
 use warp::{Filter, Reply};
 
 type ArcRw<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
-
 type CustomMessageType = shared::CustomMessage;
-// type CustomMessage = shared::Message<CustomMessageType>;
-
-// type EventSink = futures::channel::mpsc::UnboundedSender<CustomMessage>;
 
 type WsSink = tokio::sync::mpsc::UnboundedSender<warp::ws::Message>;
 type PlayerConnections = ArcRw<std::collections::HashMap<shared::PlayerID, WsSink>>;
@@ -19,90 +15,20 @@ async fn main() -> eyre::Result<()> {
         .with_level(log::LevelFilter::Debug)
         .init()?;
 
-    // channels HTTP events into the Client's receiver
-    // let (event_send, mut event_recv) = futures::channel::mpsc::unbounded();
-
-    // let (from_ws_http, game_in) = crossbeam_channel::unbounded();
-    // let (game_out, mut to_websocket) = tokio::sync::mpsc::unbounded_channel();
-
-    // let rng: rand::rngs::StdRng = rand::SeedableRng::from_entropy();
-    // let client = CustomClient::new(game_out.into(), game_in.into(), rng);
-    // let game = std::sync::Arc::new(tokio::sync::RwLock::new(client));
-
-    // let state = state::State::new(game_out.clone());
     let state = std::sync::Arc::new(tokio::sync::RwLock::new(shared::viewer::state::State::new()));
     let connections = PlayerConnections::default();
 
-    // tokio::spawn({
-    //     async move {
-    //         // pump the async HTTP/WS messages into the sync game channel
-    //         while let Some(msg) = event_recv.next().await {
-    //             if let Err(err) = game_out.send(msg) {
-    //                 log::error!("{:?}", err);
-    //             }
-    //         }
-    //     }
-    // });
-
-    // tokio::spawn({
-    //     let state = state.clone();
-    //     let connections = connections.clone();
-    //     async move {
-    //         while let Some(msg) = to_websocket.recv().await {
-    //             if let Some(players) = state.players(msg.target()).await {
-    //                 match serde_json::to_string(&msg) {
-    //                     Ok(msg) => {
-    //                         let mut connections = connections.write().await;
-    //                         let mut results = connections
-    //                             .iter_mut()
-    //                             .filter_map(|(player_id, sender)| {
-    //                                 if players.contains(player_id) {
-    //                                     Some(sender.send(warp::ws::Message::text(msg.clone())))
-    //                                 } else {
-    //                                     None
-    //                                 }
-    //                             })
-    //                             .collect::<futures::stream::FuturesUnordered<_>>();
-    //                         for result in results.next().await {
-    //                             if let Err(err) = result {
-    //                                 log::error!("{}", err);
-    //                             }
-    //                         }
-    //                     }
-    //                     Err(err) => {
-    //                         log::error!("{}", err)
-    //                     }
-    //                 }
-    //             } else {
-    //                 log::error!(
-    //                     "Tried to send message to non-existent room: {}",
-    //                     msg.target()
-    //                 );
-    //             }
-    //         }
-    //     }
-    // });
-
-    // event_recv + [ws_recvs, ...] -> game_recv
-    // game_send -> predicate -> [ws_sends, ...]
-
     let client_state = warp::any().map(move || state.clone());
-    // let event_send = warp::any().map(move || event_send.clone());
     let connections = warp::any().map(move || connections.clone());
     let player_id_cookie = warp::cookie::cookie("game-player-id");
 
     let ws = warp::path(shared::ENDPOINT_WS)
         .and(warp::ws())
         .and(player_id_cookie)
-        // .and(event_send.clone())
         .and(connections.clone())
         .and(client_state.clone())
         .map(
-            |ws: warp::ws::Ws,
-             id: String,
-             // event_sink: EventSink,
-             connections: PlayerConnections,
-             state: State| {
+            |ws: warp::ws::Ws, id: String, connections: PlayerConnections, state: State| {
                 use warp::Reply;
                 match std::str::FromStr::from_str(&id) {
                     Ok(id) => ws
@@ -147,9 +73,9 @@ async fn main() -> eyre::Result<()> {
         .map(std::path::PathBuf::from)
         .ok_or(eyre::Error::msg("there's no father to his style"))?;
 
-    let routes = ws
-        .or(create_room)
-        .or(join_room)
+    let api = warp::path("api").and(ws.or(create_room).or(join_room));
+
+    let routes = api
         .or(debug_state)
         .or(health_check)
         .or(warp::fs::dir(root.join("docs")));
@@ -160,7 +86,6 @@ async fn main() -> eyre::Result<()> {
 async fn on_ws_connect(
     ws: warp::ws::WebSocket,
     id: shared::PlayerID,
-    // mut event_sink: EventSink,
     connections: PlayerConnections,
     state: State,
 ) {

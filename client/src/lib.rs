@@ -185,6 +185,7 @@ pub mod net {
     impl Client {
         pub async fn new(base_url: String) -> eyre::Result<Self> {
             let base_url = reqwest::Url::parse(&base_url)?;
+            log::debug!("{}", base_url);
             let mut ws_url = base_url.clone();
             match base_url.scheme() {
                 "http" => {
@@ -201,6 +202,7 @@ pub mod net {
                 }
             }
             let ws_url = ws_url.join(shared::ENDPOINT_WS)?;
+            log::debug!("{}", ws_url);
             let ws = websocket::WebSocket::connect(ws_url.as_str()).await?;
             let (sx, rx) = ws.into_channels();
             Ok(Self { base_url, sx, rx })
