@@ -39,15 +39,19 @@ fn main() -> eyre::Result<()> {
                 WindowEvent::CloseRequested => {
                     *cf = ControlFlow::Exit;
                 }
-                // WindowEvent::KeyboardInput {
-                //     input:
-                //     KeyboardInput {
-                //         state,
-                //         virtual_keycode: Some(key_code),
-                //         ..
-                //     },
-                //     ..
-                // } => game.handle_key_event(state, key_code),
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Pressed,
+                            virtual_keycode: Some(key_code),
+                            ..
+                        },
+                    ..
+                } => {
+                    if let VirtualKeyCode::R = key_code {
+                        game = sim::Sim::new();
+                    }
+                }
                 WindowEvent::MouseInput { state, button, .. } => {
                     if state == ElementState::Pressed && button == MouseButton::Left {
                         let [x, y] = crate::sim::Sim::screen_to_world(gfx.viewport(), mx, my);

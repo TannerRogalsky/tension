@@ -6,7 +6,20 @@ pub struct Sim {
 
 impl Sim {
     pub fn new() -> Self {
-        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1);
+        let init = physics::PhysicsContext::special_tower;
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
+        Self { physics }
+    }
+
+    pub fn tower() -> Self {
+        let init = physics::PhysicsContext::tower;
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
+        Self { physics }
+    }
+
+    pub fn pyramid() -> Self {
+        let init = physics::PhysicsContext::pyramid;
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
         Self { physics }
     }
 
@@ -66,12 +79,17 @@ impl Sim {
         let point = rapier2d::na::Point2::new(x, y);
         self.physics.colliders.iter().find_map(|(_h, c)| {
             let c: &rapier2d::geometry::Collider = c;
-            let shape = c.shape();
-            let transform = c.position();
-            let clicked =
-                rapier2d::parry::query::point::PointQuery::contains_point(shape, transform, &point);
-            if clicked {
-                Some(c.parent())
+            if let Some(true) = self.physics.bodies.get(c.parent()).map(|b| b.is_dynamic()) {
+                let shape = c.shape();
+                let transform = c.position();
+                let clicked = rapier2d::parry::query::point::PointQuery::contains_point(
+                    shape, transform, &point,
+                );
+                if clicked {
+                    Some(c.parent())
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -106,7 +124,6 @@ mod physics {
     };
     use rapier2d::na::{Point2, Vector2};
     use rapier2d::pipeline::{ChannelEventCollector, PhysicsPipeline, QueryPipeline};
-    use solstice_2d::{Draw, Stroke};
 
     pub struct PhysicsContext {
         pipeline: PhysicsPipeline,
@@ -129,8 +146,12 @@ mod physics {
         kill_triggered: bool,
     }
 
+    pub trait GenResult: Iterator<Item = (ColliderBuilder, RigidBodyBuilder)> {}
+    impl<T> GenResult for T where T: Iterator<Item = (ColliderBuilder, RigidBodyBuilder)> {}
+    pub type Gen<I> = fn(usize, f32, f32) -> I;
+
     impl PhysicsContext {
-        pub fn new(gx: f32, gy: f32) -> Self {
+        pub fn new(gx: f32, gy: f32, init: Gen<impl GenResult>) -> Self {
             let mut bodies = RigidBodySet::new();
             let mut colliders = ColliderSet::new();
             let joints = JointSet::new();
@@ -147,44 +168,14 @@ mod physics {
                 let parent_handle = bodies.insert(body);
                 colliders.insert(collider, parent_handle, &mut bodies);
 
-                let num = 8;
-                let rad = 0.05;
+                let num = 9;
+                let rad = 0.025;
+                let offset_y = ground_thickness + camera_offset;
 
-                let shift = rad * 2.0;
-                let center_x = shift * ((num - 1) as f32) / 2.0;
-                let center_y = shift / 2.0 + ground_thickness + rad * 0.5 + camera_offset;
-
-                for y in 0usize..num {
-                    let x_count = if y % 2 == 0 { num } else { num - 1 };
-                    let yf = y as f32;
-                    for x in 0..x_count {
-                        let xf = x as f32;
-
-                        let x_offset = (num - x_count) as f32 / 2.;
-                        let x = (xf * shift) - center_x + x_offset * shift;
-                        let y = yf * shift + center_y;
-
-                        let rigid_body = RigidBodyBuilder::new_dynamic().translation(x, y).build();
-                        let handle = bodies.insert(rigid_body);
-                        let collider = ColliderBuilder::cuboid(rad, rad).build();
-                        colliders.insert(collider, handle, &mut bodies);
-                    }
+                for (collider, rigid_body) in init(num, rad, offset_y) {
+                    let handle = bodies.insert(rigid_body.build());
+                    colliders.insert(collider.build(), handle, &mut bodies);
                 }
-
-                // pyramid
-                // for i in 0usize..num {
-                //     for j in i..num {
-                //         let fj = j as f32;
-                //         let fi = i as f32;
-                //         let x = (fi * shift / 2.0) + (fj - fi) * shift - center_x;
-                //         let y = fi * shift + center_y;
-                //
-                //         let rigid_body = RigidBodyBuilder::new_dynamic().translation(x, y).build();
-                //         let handle = bodies.insert(rigid_body);
-                //         let collider = ColliderBuilder::cuboid(rad, rad).build();
-                //         colliders.insert(collider, handle, &mut bodies);
-                //     }
-                // }
 
                 let kill_sensor = bodies.insert(
                     RigidBodyBuilder::new_static()
@@ -223,6 +214,86 @@ mod physics {
                 update_timer: Timer::new(std::time::Duration::from_secs_f32(1. / 60.)),
                 kill_triggered: false,
             }
+        }
+
+        pub fn special_tower(num: usize, rad: f32, offset_y: f32) -> impl GenResult {
+            type Gen = Box<dyn Fn(usize) -> (ColliderBuilder, RigidBodyBuilder)>;
+            (0usize..num).flat_map(move |y| {
+                let yf = y as f32;
+                if y % 2 == 0 {
+                    let shift = rad * 2.0;
+                    let center_x = shift * ((num - 1) as f32) / 2.0;
+                    let center_y = shift / 2.0 + offset_y;
+                    (0..num).map(Box::new(move |x: usize| {
+                        let xf = x as f32;
+
+                        let x_offset = 0.;
+                        let x = (xf * shift) - center_x + x_offset * shift;
+                        let y = yf * shift + center_y;
+
+                        let c = ColliderBuilder::cuboid(rad, rad);
+                        let b = RigidBodyBuilder::new_dynamic().translation(x, y);
+                        (c, b)
+                    }) as Gen)
+                } else {
+                    let num = num / 2;
+                    let shift = rad * 2.;
+                    let center_x = shift * 2.5 * ((num - 1) as f32) / 2.0;
+                    let center_y = rad + offset_y;
+                    (0..num).map(Box::new(move |x: usize| {
+                        let xf = x as f32;
+
+                        let x_offset = 0.;
+                        let x = (xf * shift * 2.5) - center_x + x_offset * rad * 2.;
+                        let y = yf * shift + center_y;
+
+                        let c = ColliderBuilder::cuboid(rad * 2., rad);
+                        let b = RigidBodyBuilder::new_dynamic().translation(x, y);
+                        (c, b)
+                    }) as Gen)
+                }
+            })
+        }
+
+        pub fn tower(num: usize, rad: f32, offset_y: f32) -> impl GenResult {
+            let shift = rad * 2.0;
+            let center_x = shift * ((num - 1) as f32) / 2.0;
+            let center_y = shift / 2.0 + offset_y;
+
+            let colliders = std::iter::repeat_with(move || ColliderBuilder::cuboid(rad, rad));
+            let bodies = (0usize..num).flat_map(move |y| {
+                let x_count = if y % 2 == 0 { num } else { num - 1 };
+                let yf = y as f32;
+                (0..x_count).map(move |x| {
+                    let xf = x as f32;
+
+                    let x_offset = (num - x_count) as f32 / 2.;
+                    let x = (xf * shift) - center_x + x_offset * shift;
+                    let y = yf * shift + center_y;
+
+                    RigidBodyBuilder::new_dynamic().translation(x, y)
+                })
+            });
+            colliders.zip(bodies)
+        }
+
+        pub fn pyramid(num: usize, rad: f32, offset_y: f32) -> impl GenResult {
+            let shift = rad * 2.0;
+            let center_x = shift * ((num - 1) as f32) / 2.0;
+            let center_y = shift / 2.0 + offset_y;
+
+            let colliders = std::iter::repeat_with(move || ColliderBuilder::cuboid(rad, rad));
+            let bodies = (0usize..num).flat_map(move |i| {
+                (i..num).map(move |j| {
+                    let fj = j as f32;
+                    let fi = i as f32;
+                    let x = (fi * shift / 2.0) + (fj - fi) * shift - center_x;
+                    let y = fi * shift + center_y;
+
+                    RigidBodyBuilder::new_dynamic().translation(x, y)
+                })
+            });
+            colliders.zip(bodies)
         }
 
         pub fn step(&mut self, dt: std::time::Duration) {
@@ -276,10 +347,14 @@ mod physics {
         }
 
         pub fn debug_render(&self, g: &mut solstice_2d::GraphicsLock) {
+            use solstice_2d::Draw;
+
             const AWAKE_BODY_COLOR: [f32; 4] = [0., 0.8, 0., 1.];
             const ASLEEP_BODY_COLOR: [f32; 4] = [0., 0., 0.8, 1.];
-            const AWAKE_BODY_OUTLINE: [f32; 4] = [0., 1., 0., 1.];
-            const ASLEEP_BODY_OUTLINE: [f32; 4] = [0., 0., 1., 1.];
+            const AWAKE_BODY_OUTLINE: [f32; 4] = [0., 0., 0., 1.];
+            const ASLEEP_BODY_OUTLINE: [f32; 4] = [0., 0., 0., 1.];
+
+            let mut rects = Vec::with_capacity(self.bodies.len());
 
             for (_body_handle, body) in self.bodies.iter() {
                 let position = body.position();
@@ -289,6 +364,11 @@ mod physics {
                             TypedShape::Ball(_) => {}
                             TypedShape::Cuboid(shape) => {
                                 let half = shape.half_extents;
+                                let (color, outline) = if body.is_sleeping() {
+                                    (ASLEEP_BODY_COLOR, ASLEEP_BODY_OUTLINE)
+                                } else {
+                                    (AWAKE_BODY_COLOR, AWAKE_BODY_OUTLINE)
+                                };
                                 let quad =
                                     solstice_2d::solstice::quad_batch::Quad::<(f32, f32)>::from(
                                         solstice_2d::Rectangle::new(
@@ -304,16 +384,10 @@ mod physics {
                                         solstice_2d::Vertex2D {
                                             position: [p.x, p.y],
                                             uv: [x + 0.5, y + 0.5],
-                                            ..Default::default()
+                                            color,
                                         }
                                     });
-                                let (color, outline) = if body.is_sleeping() {
-                                    (ASLEEP_BODY_COLOR, ASLEEP_BODY_OUTLINE)
-                                } else {
-                                    (AWAKE_BODY_COLOR, AWAKE_BODY_OUTLINE)
-                                };
-                                g.draw_with_color(quad, color);
-                                g.stroke_with_color(quad, outline);
+                                rects.push((quad, outline));
                             }
                             TypedShape::Capsule(_) => {}
                             TypedShape::Segment(_) => {}
@@ -332,6 +406,64 @@ mod physics {
                     }
                 }
             }
+
+            let outlines = rects
+                .iter()
+                .flat_map(|(quad, color)| {
+                    std::iter::once(solstice_2d::LineVertex {
+                        position: [
+                            quad.vertices[0].position[0],
+                            quad.vertices[0].position[1],
+                            0.,
+                        ],
+                        width: 0.0,
+                        color: [0., 0., 0., 0.],
+                    })
+                    .chain(std::array::IntoIter::new(quad.vertices).map(move |v| {
+                        solstice_2d::LineVertex {
+                            position: [v.position[0], v.position[1], 0.],
+                            width: 2.,
+                            color: *color,
+                        }
+                    }))
+                    .chain(std::array::IntoIter::new([
+                        solstice_2d::LineVertex {
+                            position: [
+                                quad.vertices[0].position[0],
+                                quad.vertices[0].position[1],
+                                0.,
+                            ],
+                            width: 2.0,
+                            color: *color,
+                        },
+                        solstice_2d::LineVertex {
+                            position: [
+                                quad.vertices[3].position[0],
+                                quad.vertices[3].position[1],
+                                0.,
+                            ],
+                            width: 0.0,
+                            color: [0., 0., 0., 0.],
+                        },
+                    ]))
+                })
+                .collect::<Vec<_>>();
+
+            let indices = rects
+                .iter()
+                .enumerate()
+                .flat_map(|(index, _)| {
+                    let offset = index as u32 * 4;
+                    std::array::IntoIter::new(solstice_2d::solstice::quad_batch::INDICES)
+                        .map(move |i| i as u32 + offset)
+                })
+                .collect::<Vec<_>>();
+            let vertices = rects
+                .into_iter()
+                .flat_map(|(quad, _)| std::array::IntoIter::new(quad.vertices))
+                .collect::<Vec<_>>();
+            g.draw(solstice_2d::Geometry::new(vertices, Some(indices)));
+            g.line_2d(outlines);
         }
     }
 }

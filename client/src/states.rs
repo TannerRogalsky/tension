@@ -25,9 +25,7 @@ impl State {
                 inner.update(dt);
                 self
             }
-            Self::Main(inner) => {
-                inner.update(dt, ctx)
-            }
+            Self::Main(inner) => inner.update(dt, ctx),
             Self::Lobby(inner) => inner.update(dt, ctx),
         }
     }
