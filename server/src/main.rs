@@ -73,13 +73,14 @@ async fn main() -> eyre::Result<()> {
         .map(std::path::PathBuf::from)
         .ok_or(eyre::Error::msg("there's no father to his style"))?;
 
-    let api = ws.or(create_room).or(join_room);
-    #[cfg(debug_assertions)]
-    let api = warp::path("api").and(api).or(debug_state);
+    let api = warp::path("api").and(
+        ws.or(create_room)
+            .or(join_room)
+            .or(debug_state)
+            .or(health_check),
+    );
 
-    let routes = api
-        .or(health_check)
-        .or(warp::fs::dir(root.join("docs")));
+    let routes = api.or(warp::fs::dir(root.join("docs")));
 
     Ok(warp::serve(routes).run(([0, 0, 0, 0], 8000)).await)
 }

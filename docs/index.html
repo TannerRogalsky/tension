@@ -41,10 +41,7 @@
         const userIDBuffer = new Uint32Array(1);
         window.crypto.getRandomValues(userIDBuffer);
         const userID = userIDBuffer.join('');
-        console.log(userID);
         Cookies.set('game-player-id', userID);
-
-        fetch("/debug").then(r => r.text()).then(r => console.log(r));
 
         const isLeft = (button) => {
             if (button === 0) {
@@ -58,7 +55,7 @@
 
         async function run() {
             await init();
-            network = await Network.connect(window.location.href + "api/api/");
+            network = await Network.connect(window.location.href + "api/");
         }
         run();
 
