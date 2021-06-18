@@ -1,5 +1,25 @@
 use solstice_2d::solstice::viewport::Viewport;
 
+pub struct RoomType {
+    pub name: &'static str,
+    pub gen: fn() -> Sim,
+}
+
+pub const ROOM_TYPES: [RoomType; 3] = [
+    RoomType {
+        name: "standard",
+        gen: Sim::new,
+    },
+    RoomType {
+        name: "tower",
+        gen: Sim::tower,
+    },
+    RoomType {
+        name: "pyramid",
+        gen: Sim::pyramid,
+    },
+];
+
 pub struct Sim {
     physics: physics::PhysicsContext,
 }

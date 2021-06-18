@@ -9,20 +9,17 @@ pub struct Main {
     sim: crate::sim::Sim,
     local_user: User,
     room: InitialRoomState,
-    current_user: usize,
     local_click_in_flight: bool,
     click_queue: std::collections::VecDeque<(shared::PlayerID, u32)>,
     previous_click: Option<shared::PlayerID>,
 }
 
 impl Main {
-    pub fn new(local_user: User, room: InitialRoomState) -> Self {
-        let sim = crate::sim::Sim::new();
+    pub fn new(local_user: User, room: InitialRoomState, sim: crate::sim::Sim) -> Self {
         Self {
             sim,
             local_user,
             room,
-            current_user: 0,
             local_click_in_flight: false,
             click_queue: Default::default(),
             previous_click: None,
@@ -54,8 +51,9 @@ impl Main {
                     CustomMessage::AssignClick(player_id, count) => {
                         self.click_queue.push_back((player_id, count));
                     }
-                    CustomMessage::StartGame => {
-                        return super::State::Main(Self::new(self.local_user, self.room));
+                    CustomMessage::StartGame(index) => {
+                        let sim = (crate::sim::ROOM_TYPES[index as usize].gen)();
+                        return super::State::Main(Self::new(self.local_user, self.room, sim));
                     }
                 },
                 _ => {}
@@ -70,16 +68,27 @@ impl Main {
     pub fn handle_mouse_event(&mut self, event: crate::MouseEvent, ctx: StateContext) {
         if self.is_dm(&self.local_user) {
             if event.is_left_click() {
-                if self.sim.kill_triggered() {
+                let (mx, my) = ctx.input_state.mouse_position;
+                let clicked = crate::sim::ROOM_TYPES
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, _)| {
+                        if crate::collides([mx, my], &Self::room_type_bounds(index)) {
+                            Some(index)
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(index) = clicked {
                     ctx.ws.send(shared::viewer::Command::Custom(
                         self.room.id,
-                        shared::CustomMessage::StartGame,
+                        shared::CustomMessage::StartGame(index as _),
                     ));
                 } else {
                     let (mx, my) = ctx.input_state.mouse_position;
                     let clicked = self.room.users[1..].iter().find(|user| {
                         let bbox = self.username_bbox(user).unwrap();
-                        collides([mx, my], &bbox)
+                        crate::collides([mx, my], &bbox)
                     });
                     if let Some(user) = clicked {
                         ctx.ws.send(shared::viewer::Command::Custom(
@@ -192,6 +201,15 @@ impl Main {
                 }
             }
         }
+
+        if self.is_dm(&self.local_user) {
+            ctx.g.set_color([1., 1., 1., 1.]);
+            for (index, room_ty) in crate::sim::ROOM_TYPES.iter().enumerate() {
+                let bounds = Self::room_type_bounds(index);
+                ctx.g.print(room_ty.name, font_id, 32., bounds);
+                ctx.g.stroke(bounds);
+            }
+        }
     }
 
     fn username_bbox(&self, user: &User) -> Option<solstice_2d::Rectangle> {
@@ -206,13 +224,13 @@ impl Main {
             })
     }
 
-    #[allow(unused)]
-    fn is_local_current(&self) -> bool {
-        self.room
-            .users
-            .get(self.current_user)
-            .map(|user| user.id == self.local_user.id)
-            .unwrap_or(false)
+    fn room_type_bounds(index: usize) -> solstice_2d::Rectangle {
+        solstice_2d::Rectangle {
+            x: 720.,
+            y: index as f32 * 32. * 1.5 + 32.,
+            width: 480.,
+            height: 32.,
+        }
     }
 
     fn is_next(&self, user: &User) -> bool {
@@ -229,34 +247,4 @@ impl Main {
             false
         }
     }
-}
-
-fn collides(p: [f32; 2], rect: &solstice_2d::Rectangle) -> bool {
-    type Point = [f32; 2];
-    fn vec(a: Point, b: Point) -> Point {
-        [b[0] - a[0], b[1] - a[1]]
-    }
-
-    fn dot(u: Point, v: Point) -> f32 {
-        u[0] * v[0] + u[1] * v[1]
-    }
-
-    let rect = [
-        [rect.x, rect.y],
-        [rect.x, rect.y + rect.height],
-        [rect.x + rect.width, rect.y + rect.height],
-        [rect.x + rect.width, rect.y],
-    ];
-
-    let ab = vec(rect[0], rect[1]);
-    let am = vec(rect[0], p);
-    let bc = vec(rect[1], rect[2]);
-    let bm = vec(rect[1], p);
-
-    let dot_abam = dot(ab, am);
-    let dot_abab = dot(ab, ab);
-    let dot_bcbm = dot(bc, bm);
-    let dot_bcbc = dot(bc, bc);
-
-    0. <= dot_abam && dot_abam <= dot_abab && 0. <= dot_bcbm && dot_bcbm <= dot_bcbc
 }

@@ -284,6 +284,36 @@ pub mod net {
     }
 }
 
+fn collides(p: [f32; 2], rect: &solstice_2d::Rectangle) -> bool {
+    type Point = [f32; 2];
+    fn vec(a: Point, b: Point) -> Point {
+        [b[0] - a[0], b[1] - a[1]]
+    }
+
+    fn dot(u: Point, v: Point) -> f32 {
+        u[0] * v[0] + u[1] * v[1]
+    }
+
+    let rect = [
+        [rect.x, rect.y],
+        [rect.x, rect.y + rect.height],
+        [rect.x + rect.width, rect.y + rect.height],
+        [rect.x + rect.width, rect.y],
+    ];
+
+    let ab = vec(rect[0], rect[1]);
+    let am = vec(rect[0], p);
+    let bc = vec(rect[1], rect[2]);
+    let bm = vec(rect[1], p);
+
+    let dot_abam = dot(ab, am);
+    let dot_abab = dot(ab, ab);
+    let dot_bcbm = dot(bc, bm);
+    let dot_bcbc = dot(bc, bc);
+
+    0. <= dot_abam && dot_abam <= dot_abab && 0. <= dot_bcbm && dot_bcbm <= dot_bcbc
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
