@@ -4,6 +4,7 @@ services:
 - dockerfile_path: ./server/Dockerfile
   github:
     branch: master
+    deploy_on_push: true
     repo: TannerRogalsky/tension
   health_check:
     http_path: /health
@@ -18,6 +19,7 @@ static_sites:
 - dockerfile_path: ./client/Dockerfile
   github:
     branch: master
+    deploy_on_push: true
     repo: TannerRogalsky/tension
   name: front-end
   routes:
