@@ -32,16 +32,14 @@
     </form>
     <canvas id="game" width="1280" height="720" style="display: none;"></canvas>
     <script type="module">
-        import init, { Tension, Network, Resources } from './tension/client.js';
+        import init, { Tension, Network, Resources, gen_user_id } from './tension/client.js';
 
         import Cookies from 'https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.mjs';
 
         let font_data_promise = fetch('./fonts/Inconsolata-Regular.ttf').then(r => r.arrayBuffer());
 
-        const userIDBuffer = new Uint32Array(1);
-        window.crypto.getRandomValues(userIDBuffer);
-        const userID = userIDBuffer.join('');
-        Cookies.set('game-player-id', userID);
+        const userIDKey = 'game-player-id';
+        let userId = Cookies.get(userIDKey);
 
         const isLeft = (button) => {
             if (button === 0) {
@@ -55,6 +53,12 @@
 
         async function run() {
             await init();
+
+            if (!userId) {
+                userId = gen_user_id();
+                Cookies.set(userIDKey, userId);
+            }
+
             network = await Network.connect(window.location.href + "api/");
         }
         run();

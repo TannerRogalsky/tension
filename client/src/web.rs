@@ -191,6 +191,17 @@ pub struct RoomStateWrapper {
     local_user: shared::viewer::User,
 }
 
+#[wasm_bindgen]
+pub fn gen_user_id() -> Option<String> {
+    let window = web_sys::window()?;
+    let crypto = window.crypto().ok()?;
+
+    let mut b = 0u64.to_ne_bytes();
+    crypto.get_random_values_with_u8_array(&mut b).unwrap();
+
+    Some(u64::from_ne_bytes(b).to_string())
+}
+
 fn duration_from_f64(millis: f64) -> std::time::Duration {
     std::time::Duration::from_millis(millis.trunc() as u64)
         + std::time::Duration::from_nanos((millis.fract() * 1.0e6) as u64)
