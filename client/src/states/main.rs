@@ -56,7 +56,22 @@ impl Main {
                         return super::State::Main(Self::new(self.local_user, self.room, sim));
                     }
                 },
-                _ => {}
+                ChangeType::UserJoin(user) => {
+                    // users can join the room but they will be lobbied until the next game starts
+                    self.room.users.push(user);
+                }
+                ChangeType::UserLeave(user_id) => {
+                    let index = self.room.users.iter().position(|user| user.id == user_id);
+                    if let Some(index) = index {
+                        if index == 0 {
+                            log::debug!("DM lefted room!");
+                            return super::State::NoRoom(Default::default());
+                        } else {
+                            let user = self.room.users.remove(index);
+                            self.click_queue.retain(|(id, _count)| id != &user.id);
+                        }
+                    }
+                }
             }
         }
 
@@ -219,7 +234,7 @@ impl Main {
             .map(|index| solstice_2d::Rectangle {
                 x: 8.,
                 y: (TEXT_SCALE * 1.1 * (index + 1) as f32 + 8.).round(),
-                width: 100.,
+                width: 200.,
                 height: TEXT_SCALE,
             })
     }
