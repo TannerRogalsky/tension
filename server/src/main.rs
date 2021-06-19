@@ -15,6 +15,8 @@ async fn main() -> eyre::Result<()> {
         .with_level(log::LevelFilter::Debug)
         .init()?;
 
+    log::debug!("Server version: {}", env!("CARGO_PKG_VERSION"));
+
     let state = std::sync::Arc::new(tokio::sync::RwLock::new(shared::viewer::state::State::new()));
     let connections = PlayerConnections::default();
 
