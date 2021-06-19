@@ -101,7 +101,9 @@ pub struct Player {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CustomMessage {
     StartGame(u16),
-    Click(f32, f32),
+    RemoveBody(f32, f32),
+    MoveBody(f32, f32),
+    DropBody(f32, f32),
     AssignClick(PlayerID, u32),
 }
 

@@ -20,6 +20,11 @@ pub const ROOM_TYPES: [RoomType; 3] = [
     },
 ];
 
+pub type PhysicsTuple = (
+    rapier2d::dynamics::RigidBody,
+    Vec<rapier2d::geometry::Collider>,
+);
+
 pub struct Sim {
     physics: physics::PhysicsContext,
 }
@@ -66,7 +71,6 @@ impl Sim {
         );
 
         self.physics.debug_render(g);
-        g.set_projection_mode(None);
     }
 
     pub fn projection(vw: &Viewport<i32>) -> solstice_2d::Projection {
@@ -119,12 +123,36 @@ impl Sim {
     pub fn try_remove_body(
         &mut self,
         handle: rapier2d::dynamics::RigidBodyHandle,
-    ) -> Option<rapier2d::dynamics::RigidBody> {
-        self.physics.bodies.remove(
-            handle,
-            &mut self.physics.colliders,
-            &mut self.physics.joints,
-        )
+    ) -> Option<PhysicsTuple> {
+        let colliders = self.physics.bodies.get(handle).cloned().map(|body| {
+            body.colliders()
+                .iter()
+                .filter_map(|collider| {
+                    self.physics
+                        .colliders
+                        .remove(*collider, &mut self.physics.bodies, false)
+                })
+                .collect::<Vec<_>>()
+        });
+        self.physics
+            .bodies
+            .remove(
+                handle,
+                &mut self.physics.colliders,
+                &mut self.physics.joints,
+            )
+            .zip(colliders)
+    }
+
+    pub fn add_body(&mut self, collection: PhysicsTuple) {
+        let (body, colliders) = collection;
+
+        let handle = self.physics.bodies.insert(body);
+        for collider in colliders {
+            self.physics
+                .colliders
+                .insert(collider, handle, &mut self.physics.bodies);
+        }
     }
 
     pub fn kill_triggered(&self) -> bool {

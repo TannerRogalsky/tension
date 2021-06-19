@@ -1,4 +1,6 @@
 use super::StateContext;
+use crate::winit::event::ElementState;
+use crate::MouseEvent;
 use shared::viewer::{ChangeType, InitialRoomState, User};
 use shared::CustomMessage;
 use solstice_2d::{Draw, Stroke};
@@ -12,6 +14,7 @@ pub struct Main {
     local_click_in_flight: bool,
     click_queue: std::collections::VecDeque<(shared::PlayerID, u32)>,
     previous_click: Option<shared::PlayerID>,
+    moving: Option<crate::sim::PhysicsTuple>,
 }
 
 impl Main {
@@ -23,6 +26,7 @@ impl Main {
             local_click_in_flight: false,
             click_queue: Default::default(),
             previous_click: None,
+            moving: None,
         }
     }
 
@@ -30,16 +34,33 @@ impl Main {
         for msg in ctx.ws.try_recv_iter() {
             match msg.ty {
                 ChangeType::Custom(cmd) => match cmd {
-                    CustomMessage::Click(x, y) => {
+                    CustomMessage::RemoveBody(x, y) => {
                         log::debug!("CLICK ({}, {})", x, y);
                         self.local_click_in_flight = false;
                         if let Some(handle) = self.sim.body_at_point(x, y) {
-                            self.sim.try_remove_body(handle);
+                            self.moving = self.sim.try_remove_body(handle);
                         }
 
-                        let previous_click = &mut self.previous_click;
-                        if let Some(count) = self.click_queue.front_mut().map(|(user, count)| {
-                            *previous_click = Some(*user);
+                        self.previous_click = self.click_queue.front().map(|(user, _)| *user);
+                    }
+                    CustomMessage::MoveBody(x, y) => {
+                        if let Some((body, _)) = &mut self.moving {
+                            let translation =
+                                rapier2d::na::Translation2::from(rapier2d::na::Vector2::new(x, y));
+                            let mut position = body.position().clone();
+                            position.translation = translation;
+                            body.set_position(position, false);
+                        }
+                    }
+                    CustomMessage::DropBody(x, y) => {
+                        if let Some((mut body, colliders)) = self.moving.take() {
+                            let mut position = body.position().clone();
+                            position.translation =
+                                rapier2d::na::Translation2::from(rapier2d::na::Vector2::new(x, y));
+                            body.set_position(position, false);
+                            self.sim.add_body((body, colliders));
+                        }
+                        if let Some(count) = self.click_queue.front_mut().map(|(_user, count)| {
                             *count -= 1;
                             *count
                         }) {
@@ -82,7 +103,7 @@ impl Main {
 
     pub fn handle_mouse_event(&mut self, event: crate::MouseEvent, ctx: StateContext) {
         if self.is_dm(&self.local_user) {
-            if event.is_left_click() {
+            if event.is_left_press() {
                 let (mx, my) = ctx.input_state.mouse_position;
                 let clicked = crate::sim::ROOM_TYPES
                     .iter()
@@ -114,21 +135,55 @@ impl Main {
                 }
             }
         } else {
-            if event.is_left_click() {
-                let is_next = self.is_next(&self.local_user);
-                let can_click = !self.local_click_in_flight && is_next && self.sim.all_sleeping();
+            if self.is_next(&self.local_user) {
+                match event {
+                    MouseEvent::Button(state, crate::MouseButton::Left) => match state {
+                        ElementState::Pressed => {
+                            let can_click = !self.local_click_in_flight && self.sim.all_sleeping();
 
-                if can_click {
-                    let (mx, my) = ctx.input_state.mouse_position;
-                    let [x, y] = crate::sim::Sim::screen_to_world(ctx.g.gfx().viewport(), mx, my);
-                    let clicked = self.sim.body_at_point(x, y).is_some();
-                    if clicked {
-                        self.local_click_in_flight = true;
-                        ctx.ws.send(shared::viewer::Command::Custom(
-                            self.room.id,
-                            shared::CustomMessage::Click(x, y),
-                        ));
+                            if can_click {
+                                let (mx, my) = ctx.input_state.mouse_position;
+                                let [x, y] = crate::sim::Sim::screen_to_world(
+                                    ctx.g.gfx().viewport(),
+                                    mx,
+                                    my,
+                                );
+                                let clicked = self.sim.body_at_point(x, y).is_some();
+                                if clicked {
+                                    self.local_click_in_flight = true;
+                                    ctx.ws.send(shared::viewer::Command::Custom(
+                                        self.room.id,
+                                        shared::CustomMessage::RemoveBody(x, y),
+                                    ));
+                                }
+                            }
+                        }
+                        ElementState::Released => {
+                            if self.local_click_in_flight || self.moving.is_some() {
+                                let (mx, my) = ctx.input_state.mouse_position;
+                                let [x, y] = crate::sim::Sim::screen_to_world(
+                                    ctx.g.gfx().viewport(),
+                                    mx,
+                                    my,
+                                );
+                                ctx.ws.send(shared::viewer::Command::Custom(
+                                    self.room.id,
+                                    shared::CustomMessage::DropBody(x, y),
+                                ));
+                            }
+                        }
+                    },
+                    MouseEvent::Moved(mx, my) => {
+                        if self.local_click_in_flight || self.moving.is_some() {
+                            let [x, y] =
+                                crate::sim::Sim::screen_to_world(ctx.g.gfx().viewport(), mx, my);
+                            ctx.ws.send(shared::viewer::Command::Custom(
+                                self.room.id,
+                                shared::CustomMessage::MoveBody(x, y),
+                            ));
+                        }
                     }
+                    _ => {}
                 }
             }
         }
@@ -138,6 +193,31 @@ impl Main {
         ctx.g.clear([0.2, 0.2, 0.2, 1.]);
         self.sim.render(&mut ctx.g);
 
+        if let Some((body, colliders)) = &self.moving {
+            let position = body.position();
+            for collider in colliders {
+                if let Some(shape) = collider.shape().as_cuboid() {
+                    let half = shape.half_extents;
+                    let quad = solstice_2d::solstice::quad_batch::Quad::<(f32, f32)>::from(
+                        solstice_2d::Rectangle::new(-half.x, -half.y, half.x * 2., half.y * 2.),
+                    )
+                    .map(|(x, y)| {
+                        let p = rapier2d::na::Point2::new(x, y);
+                        let p = position.transform_point(&p);
+                        solstice_2d::Vertex2D {
+                            position: [p.x, p.y],
+                            uv: [x + 0.5, y + 0.5],
+                            color: [1., 0.2, 0.2, 0.8],
+                        }
+                    });
+                    ctx.g.draw(quad);
+                } else {
+                    log::debug!("unrecognized shape");
+                }
+            }
+        }
+
+        ctx.g.set_projection_mode(None);
         let font_id = ctx.resources.sans_font;
         if self.sim.kill_triggered() {
             let vw = ctx.g.gfx().viewport();
@@ -174,13 +254,23 @@ impl Main {
                 width: vw.width() as f32,
                 height: vw.height() as f32,
             };
+            let room_code_text = format!("ROOM CODE: {}", self.room.id);
+            ctx.g.print(
+                room_code_text,
+                font_id,
+                TEXT_SCALE,
+                solstice_2d::Rectangle { y: 8., ..bounds },
+            );
             if let Some(dm) = self.room.users.first() {
                 let text = format!("DM: {}", dm.name);
                 ctx.g.print(
                     text,
                     font_id,
                     TEXT_SCALE,
-                    solstice_2d::Rectangle { y: 8., ..bounds },
+                    solstice_2d::Rectangle {
+                        y: 8. + TEXT_SCALE,
+                        ..bounds
+                    },
                 );
             }
             for (index, user) in self.room.users[1..].iter().enumerate() {
@@ -233,7 +323,7 @@ impl Main {
             .position(|other| user.id == other.id)
             .map(|index| solstice_2d::Rectangle {
                 x: 8.,
-                y: (TEXT_SCALE * 1.1 * (index + 1) as f32 + 8.).round(),
+                y: (TEXT_SCALE * 1.1 * (index + 2) as f32 + 8.).round(),
                 width: 200.,
                 height: TEXT_SCALE,
             })

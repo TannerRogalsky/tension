@@ -49,7 +49,7 @@ impl Lobby {
     }
 
     pub fn handle_mouse_event(&self, event: crate::MouseEvent, ctx: StateContext) {
-        if self.is_dm(&self.local_user) && event.is_left_click() {
+        if self.is_dm(&self.local_user) && event.is_left_press() {
             let (mx, my) = ctx.input_state.mouse_position;
             for (index, _) in crate::sim::ROOM_TYPES.iter().enumerate() {
                 if crate::collides([mx, my], &Self::room_type_bounds(index)) {

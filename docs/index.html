@@ -39,7 +39,7 @@
         let font_data_promise = fetch('./fonts/Inconsolata-Regular.ttf').then(r => r.arrayBuffer());
 
         const userIDKey = 'game-player-id';
-        let userId = Cookies.get(userIDKey);
+        let userID = Cookies.get(userIDKey);
 
         const isLeft = (button) => {
             if (button === 0) {
@@ -54,9 +54,9 @@
         async function run() {
             await init();
 
-            if (!userId) {
-                userId = gen_user_id();
-                Cookies.set(userIDKey, userId);
+            if (!userID) {
+                userID = gen_user_id();
+                Cookies.set(userIDKey, userID);
             }
 
             network = await Network.connect(window.location.href + "api/");

@@ -17,9 +17,16 @@ pub enum MouseEvent {
 }
 
 impl MouseEvent {
-    pub fn is_left_click(&self) -> bool {
+    pub fn is_left_press(&self) -> bool {
         match self {
             Self::Button(ElementState::Pressed, MouseButton::Left) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_left_release(&self) -> bool {
+        match self {
+            Self::Button(ElementState::Released, MouseButton::Left) => true,
             _ => false,
         }
     }
