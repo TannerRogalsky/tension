@@ -5,7 +5,7 @@ pub struct RoomType {
     pub gen: fn() -> Sim,
 }
 
-pub const ROOM_TYPES: [RoomType; 3] = [
+pub const ROOM_TYPES: [RoomType; 4] = [
     RoomType {
         name: "standard",
         gen: Sim::new,
@@ -17,6 +17,10 @@ pub const ROOM_TYPES: [RoomType; 3] = [
     RoomType {
         name: "pyramid",
         gen: Sim::pyramid,
+    },
+    RoomType {
+        name: "thin",
+        gen: Sim::thin,
     },
 ];
 
@@ -32,19 +36,25 @@ pub struct Sim {
 impl Sim {
     pub fn new() -> Self {
         let init = physics::PhysicsContext::special_tower;
-        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init, 11);
         Self { physics }
     }
 
     pub fn tower() -> Self {
         let init = physics::PhysicsContext::tower;
-        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init, 12);
         Self { physics }
     }
 
     pub fn pyramid() -> Self {
         let init = physics::PhysicsContext::pyramid;
-        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init);
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init, 9);
+        Self { physics }
+    }
+
+    pub fn thin() -> Self {
+        let init = physics::PhysicsContext::thin;
+        let physics = physics::PhysicsContext::new(0., -9.81 * 0.1, init, 13);
         Self { physics }
     }
 
@@ -64,10 +74,6 @@ impl Sim {
         g.draw_with_color(
             solstice_2d::Rectangle::new(-0.5, -0.5, 1., 1.),
             [0.1, 0.1, 0.3, 1.],
-        );
-        g.draw_with_color(
-            solstice_2d::Rectangle::new(-0.25, 0., 0.5, 0.1),
-            [0.1, 0.2, 0.8, 1.],
         );
 
         self.physics.debug_render(g);
@@ -199,31 +205,34 @@ mod physics {
     pub type Gen<I> = fn(usize, f32, f32) -> I;
 
     impl PhysicsContext {
-        pub fn new(gx: f32, gy: f32, init: Gen<impl GenResult>) -> Self {
+        pub fn new(gx: f32, gy: f32, init: Gen<impl GenResult>, num: usize) -> Self {
             let mut bodies = RigidBodySet::new();
             let mut colliders = ColliderSet::new();
             let joints = JointSet::new();
 
             let kill_sensor = {
-                let ground_size = 0.4;
                 let ground_thickness = 0.05;
                 let camera_offset = -0.5;
 
-                let collider = ColliderBuilder::cuboid(ground_size, ground_thickness).build();
+                let rad = 0.025;
+                let offset_y = ground_thickness + camera_offset;
+
+                let mut ground_size = 0f32;
+                let pt = rapier2d::na::Point2::new(0., 0.);
+                for (collider, rigid_body) in init(num, rad, offset_y) {
+                    let rb = rigid_body.build();
+                    let pos = rb.position().transform_point(&pt);
+                    ground_size = ground_size.max(pos.x);
+                    let handle = bodies.insert(rb);
+                    colliders.insert(collider.build(), handle, &mut bodies);
+                }
+
+                let collider = ColliderBuilder::cuboid(ground_size + rad, ground_thickness).build();
                 let body = RigidBodyBuilder::new_static()
                     .translation(0., camera_offset)
                     .build();
                 let parent_handle = bodies.insert(body);
                 colliders.insert(collider, parent_handle, &mut bodies);
-
-                let num = 9;
-                let rad = 0.025;
-                let offset_y = ground_thickness + camera_offset;
-
-                for (collider, rigid_body) in init(num, rad, offset_y) {
-                    let handle = bodies.insert(rigid_body.build());
-                    colliders.insert(collider.build(), handle, &mut bodies);
-                }
 
                 let kill_sensor = bodies.insert(
                     RigidBodyBuilder::new_static()
@@ -231,7 +240,7 @@ mod physics {
                         .build(),
                 );
                 let kill_sensor = colliders.insert(
-                    ColliderBuilder::cuboid(ground_size * 4., ground_thickness)
+                    ColliderBuilder::cuboid(4., ground_thickness)
                         .sensor(true)
                         .build(),
                     kill_sensor,
@@ -269,6 +278,7 @@ mod physics {
             (0usize..num).flat_map(move |y| {
                 let yf = y as f32;
                 if y % 2 == 0 {
+                    let num = num - 2;
                     let shift = rad * 2.0;
                     let center_x = shift * ((num - 1) as f32) / 2.0;
                     let center_y = shift / 2.0 + offset_y;
@@ -284,15 +294,16 @@ mod physics {
                         (c, b)
                     }) as Gen)
                 } else {
-                    let num = num / 2;
+                    let num = num / 3;
                     let shift = rad * 2.;
-                    let center_x = shift * 2.5 * ((num - 1) as f32) / 2.0;
+                    let h_factor = 3.;
+                    let center_x = shift * h_factor * ((num - 1) as f32) / 2.0;
                     let center_y = rad + offset_y;
                     (0..num).map(Box::new(move |x: usize| {
                         let xf = x as f32;
 
                         let x_offset = 0.;
-                        let x = (xf * shift * 2.5) - center_x + x_offset * rad * 2.;
+                        let x = (xf * shift * h_factor) - center_x + x_offset * rad * 2.;
                         let y = yf * shift + center_y;
 
                         let c = ColliderBuilder::cuboid(rad * 2., rad);
@@ -303,6 +314,28 @@ mod physics {
             })
         }
 
+        pub fn thin(num: usize, rad: f32, offset_y: f32) -> impl GenResult {
+            let size = rad * 2.0;
+            let center_x = size * ((num - 1) as f32) / 2.0;
+            let center_y = size / 2.0 + offset_y;
+
+            let colliders = std::iter::repeat_with(move || ColliderBuilder::cuboid(rad, rad));
+            let bodies = (0usize..num).flat_map(move |y| {
+                let x_count = if y % 2 == 0 { 3 } else { 4 };
+                let yf = y as f32;
+                (0..x_count).map(move |x| {
+                    let xf = x as f32;
+
+                    let x_offset = (num - x_count) as f32 / 2.;
+                    let x = (xf * size) - center_x + x_offset * size;
+                    let y = yf * size + center_y;
+
+                    RigidBodyBuilder::new_dynamic().translation(x, y)
+                })
+            });
+            colliders.zip(bodies)
+        }
+
         pub fn tower(num: usize, rad: f32, offset_y: f32) -> impl GenResult {
             let shift = rad * 2.0;
             let center_x = shift * ((num - 1) as f32) / 2.0;
@@ -310,7 +343,7 @@ mod physics {
 
             let colliders = std::iter::repeat_with(move || ColliderBuilder::cuboid(rad, rad));
             let bodies = (0usize..num).flat_map(move |y| {
-                let x_count = if y % 2 == 0 { num } else { num - 1 };
+                let x_count = if y % 2 == 0 { num / 2 } else { num / 2 - 1 };
                 let yf = y as f32;
                 (0..x_count).map(move |x| {
                     let xf = x as f32;
@@ -399,8 +432,7 @@ mod physics {
 
             const AWAKE_BODY_COLOR: [f32; 4] = [0., 0.8, 0., 1.];
             const ASLEEP_BODY_COLOR: [f32; 4] = [0., 0., 0.8, 1.];
-            const AWAKE_BODY_OUTLINE: [f32; 4] = [0., 0., 0., 1.];
-            const ASLEEP_BODY_OUTLINE: [f32; 4] = [0., 0., 0., 1.];
+            const STATIC_BODY_COLOR: [f32; 4] = [133. / 255., 87. / 255., 35. / 255., 1.];
 
             let mut rects = Vec::with_capacity(self.bodies.len());
 
@@ -412,10 +444,12 @@ mod physics {
                             TypedShape::Ball(_) => {}
                             TypedShape::Cuboid(shape) => {
                                 let half = shape.half_extents;
-                                let (color, outline) = if body.is_sleeping() {
-                                    (ASLEEP_BODY_COLOR, ASLEEP_BODY_OUTLINE)
+                                let color = if body.is_static() {
+                                    STATIC_BODY_COLOR
+                                } else if body.is_sleeping() {
+                                    ASLEEP_BODY_COLOR
                                 } else {
-                                    (AWAKE_BODY_COLOR, AWAKE_BODY_OUTLINE)
+                                    AWAKE_BODY_COLOR
                                 };
                                 let quad =
                                     solstice_2d::solstice::quad_batch::Quad::<(f32, f32)>::from(
@@ -435,7 +469,7 @@ mod physics {
                                             color,
                                         }
                                     });
-                                rects.push((quad, outline));
+                                rects.push(quad);
                             }
                             TypedShape::Capsule(_) => {}
                             TypedShape::Segment(_) => {}
@@ -457,7 +491,7 @@ mod physics {
 
             let outlines = rects
                 .iter()
-                .flat_map(|(quad, color)| {
+                .flat_map(|quad| {
                     std::iter::once(solstice_2d::LineVertex {
                         position: [
                             quad.vertices[0].position[0],
@@ -471,7 +505,7 @@ mod physics {
                         solstice_2d::LineVertex {
                             position: [v.position[0], v.position[1], 0.],
                             width: 2.,
-                            color: *color,
+                            color: [0., 0., 0., 1.],
                         }
                     }))
                     .chain(std::array::IntoIter::new([
@@ -482,7 +516,7 @@ mod physics {
                                 0.,
                             ],
                             width: 2.0,
-                            color: *color,
+                            color: [0., 0., 0., 1.],
                         },
                         solstice_2d::LineVertex {
                             position: [
@@ -508,7 +542,7 @@ mod physics {
                 .collect::<Vec<_>>();
             let vertices = rects
                 .into_iter()
-                .flat_map(|(quad, _)| std::array::IntoIter::new(quad.vertices))
+                .flat_map(|quad| std::array::IntoIter::new(quad.vertices))
                 .collect::<Vec<_>>();
             g.draw(solstice_2d::Geometry::new(vertices, Some(indices)));
             g.line_2d(outlines);

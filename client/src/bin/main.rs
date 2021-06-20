@@ -47,11 +47,13 @@ fn main() -> eyre::Result<()> {
                             ..
                         },
                     ..
-                } => {
-                    if let VirtualKeyCode::R = key_code {
-                        game = sim::Sim::new();
-                    }
-                }
+                } => match key_code {
+                    VirtualKeyCode::Q => game = sim::Sim::new(),
+                    VirtualKeyCode::W => game = sim::Sim::pyramid(),
+                    VirtualKeyCode::E => game = sim::Sim::tower(),
+                    VirtualKeyCode::R => game = sim::Sim::thin(),
+                    _ => {}
+                },
                 WindowEvent::MouseInput { state, button, .. } => {
                     if state == ElementState::Pressed && button == MouseButton::Left {
                         let [x, y] = crate::sim::Sim::screen_to_world(gfx.viewport(), mx, my);
