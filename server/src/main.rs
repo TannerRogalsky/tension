@@ -108,7 +108,8 @@ async fn on_ws_connect(
 
         while let Some(msg) = stream.next().await {
             if let Err(err) = user_ws_tx.send(msg).await {
-                eprintln!("websocket send error: {}", err);
+                log::error!("websocket send error: {}", err);
+                break;
             }
         }
     });
