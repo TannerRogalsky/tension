@@ -161,11 +161,12 @@ async fn ws_forward(
         match serde_json::to_string(&msg) {
             Ok(msg) => {
                 let mut connections = connections.write().await;
-                // this unwrap will panic if the player has dropped which is a convenient but probably bad
-                // way to exit this loop
-                let socket = connections.get_mut(&player_id).unwrap();
-                if let Err(err) = socket.send(warp::ws::Message::text(msg)) {
-                    log::error!("{}", err);
+                if let Some(socket) = connections.get_mut(&player_id) {
+                    if let Err(err) = socket.send(warp::ws::Message::text(msg)) {
+                        log::error!("{}", err);
+                    }
+                } else {
+                    log::info!("Connection for {:?} has been dropped.", player_id);
                 }
             }
             Err(err) => {
