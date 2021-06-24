@@ -224,10 +224,12 @@ mod physics {
                     let pos = rb.position().transform_point(&pt);
                     ground_size = ground_size.max(pos.x);
                     let handle = bodies.insert(rb);
-                    colliders.insert(collider.build(), handle, &mut bodies);
+                    colliders.insert(collider.friction(1.).build(), handle, &mut bodies);
                 }
 
-                let collider = ColliderBuilder::cuboid(ground_size + rad, ground_thickness).build();
+                let collider = ColliderBuilder::cuboid(ground_size + rad, ground_thickness)
+                    .friction(1.)
+                    .build();
                 let body = RigidBodyBuilder::new_static()
                     .translation(0., camera_offset)
                     .build();

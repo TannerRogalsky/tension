@@ -92,7 +92,7 @@ pub mod state {
         pub fn create_room(&mut self) -> RoomID {
             let mut rng = rand::thread_rng();
             let room_id = crate::RoomID::new(&mut rng);
-            let (channel, _) = channel::channel(16);
+            let (channel, _) = channel::channel(32);
             self.rooms.insert(
                 room_id,
                 Room {
