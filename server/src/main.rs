@@ -98,9 +98,15 @@ async fn on_ws_connect(
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
 
     let (sx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut rx = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    let rx = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
     tokio::task::spawn(async move {
-        while let Some(msg) = rx.next().await {
+        let interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        let interval = tokio_stream::wrappers::IntervalStream::new(interval);
+        let interval = interval.map(|_t| warp::ws::Message::ping(vec![]));
+
+        let mut stream = futures::stream::select(rx, interval);
+
+        while let Some(msg) = stream.next().await {
             if let Err(err) = user_ws_tx.send(msg).await {
                 eprintln!("websocket send error: {}", err);
             }
