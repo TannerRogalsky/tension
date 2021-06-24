@@ -157,20 +157,26 @@ async fn ws_forward(
     connections: PlayerConnections,
 ) {
     let mut channel = tokio_stream::wrappers::BroadcastStream::new(channel);
-    while let Some(Ok(msg)) = channel.next().await {
-        match serde_json::to_string(&msg) {
-            Ok(msg) => {
-                let mut connections = connections.write().await;
-                if let Some(socket) = connections.get_mut(&player_id) {
-                    if let Err(err) = socket.send(warp::ws::Message::text(msg)) {
-                        log::error!("{}", err);
+    while let Some(msg) = channel.next().await {
+        match msg {
+            Ok(msg) => match serde_json::to_string(&msg) {
+                Ok(msg) => {
+                    let mut connections = connections.write().await;
+                    if let Some(socket) = connections.get_mut(&player_id) {
+                        if let Err(err) = socket.send(warp::ws::Message::text(msg)) {
+                            log::error!("{}", err);
+                        }
+                    } else {
+                        log::info!("Connection for {:?} has been dropped.", player_id);
+                        break;
                     }
-                } else {
-                    log::info!("Connection for {:?} has been dropped.", player_id);
                 }
-            }
+                Err(err) => {
+                    log::error!("{}", err);
+                }
+            },
             Err(err) => {
-                log::error!("{}", err);
+                log::error!("BROADCAST RECV ERROR: {}", err);
             }
         }
     }
